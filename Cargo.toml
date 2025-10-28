@@ -1,0 +1,22 @@
+[package]
+name = "space-combat-game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.14"
+bevy_rapier3d = "0.27"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+noise = "0.9"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = true
+codegen-units = 1
+

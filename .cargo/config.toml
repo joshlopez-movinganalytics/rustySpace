@@ -1,0 +1,3 @@
+# Mold linker is not supported on macOS
+# [build]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]
