@@ -50,7 +50,8 @@ pub struct Weapon {
     pub cooldown_timer: f32,
     pub spread: f32,
     pub alt_fire_charge: f32, // For charged weapons
-    pub shield_damage_multiplier: f32, // For ion weapons
+    pub shield_damage_multiplier: f32, // Multiplier for shield damage
+    pub hull_damage_multiplier: f32, // Multiplier for hull damage
 }
 
 /// Weapon mount component
@@ -68,7 +69,11 @@ pub struct Projectile {
     pub owner: Entity,
     pub weapon_type: WeaponType,
     pub shield_damage_multiplier: f32,
+    pub hull_damage_multiplier: f32,
     pub piercing: bool,
+    pub area_damage: f32, // Radius for area of effect damage
+    pub homing_strength: f32, // 0.0 = no homing, higher = stronger homing
+    pub homing_target: Option<Entity>,
 }
 
 /// Damage type for resistances
@@ -88,116 +93,141 @@ pub enum Faction {
 }
 
 impl Weapon {
+    /// Laser - Anti-Shield weapon (2.5x shield, 0.3x hull)
+    /// Alt-fire: 3-shot burst
     pub fn laser() -> Self {
         Self {
             weapon_type: WeaponType::Laser,
-            damage: 10.0,
-            fire_rate: 5.0,
-            projectile_speed: 130.0, // Increased from 100
-            energy_cost: 5.0,
+            damage: 12.0,
+            fire_rate: 6.0,
+            projectile_speed: 150.0,
+            energy_cost: 4.0,
             cooldown_timer: 0.0,
-            spread: 0.01,
+            spread: 0.008,
             alt_fire_charge: 0.0,
-            shield_damage_multiplier: 1.0,
+            shield_damage_multiplier: 2.5,  // 30 damage to shields
+            hull_damage_multiplier: 0.3,     // 3.6 damage to hull
         }
     }
 
-    pub fn plasma() -> Self {
-        Self {
-            weapon_type: WeaponType::Plasma,
-            damage: 25.0,
-            fire_rate: 2.0,
-            projectile_speed: 78.0, // Increased from 60
-            energy_cost: 15.0,
-            cooldown_timer: 0.0,
-            spread: 0.03,
-            alt_fire_charge: 0.0,
-            shield_damage_multiplier: 1.0,
-        }
-    }
-
-    pub fn missile() -> Self {
-        Self {
-            weapon_type: WeaponType::Missile,
-            damage: 50.0,
-            fire_rate: 1.0,
-            projectile_speed: 52.0, // Increased from 40
-            energy_cost: 25.0,
-            cooldown_timer: 0.0,
-            spread: 0.0,
-            alt_fire_charge: 0.0,
-            shield_damage_multiplier: 1.0,
-        }
-    }
-
-    pub fn railgun() -> Self {
-        Self {
-            weapon_type: WeaponType::Railgun,
-            damage: 75.0,
-            fire_rate: 0.5,
-            projectile_speed: 260.0, // Increased from 200
-            energy_cost: 40.0,
-            cooldown_timer: 0.0,
-            spread: 0.0,
-            alt_fire_charge: 0.0,
-            shield_damage_multiplier: 1.0,
-        }
-    }
-
+    /// Autocannon - Anti-Hull weapon (0.4x shield, 2.0x hull)
+    /// Alt-fire: Shotgun spread
     pub fn autocannon() -> Self {
         Self {
             weapon_type: WeaponType::Autocannon,
-            damage: 15.0,
-            fire_rate: 10.0,
-            projectile_speed: 150.0,
+            damage: 14.0,
+            fire_rate: 8.0,
+            projectile_speed: 140.0,
             energy_cost: 3.0,
             cooldown_timer: 0.0,
-            spread: 0.02,
+            spread: 0.015,
             alt_fire_charge: 0.0,
-            shield_damage_multiplier: 0.8,
+            shield_damage_multiplier: 0.4,  // 5.6 damage to shields
+            hull_damage_multiplier: 2.0,     // 28 damage to hull
         }
     }
 
-    pub fn ion_cannon() -> Self {
+    /// Missile - Homing with area damage (1.5x shield, 1.0x hull)
+    /// Alt-fire: Missile swarm
+    pub fn missile() -> Self {
         Self {
-            weapon_type: WeaponType::IonCannon,
-            damage: 5.0,
-            fire_rate: 2.0,
-            projectile_speed: 100.0,
+            weapon_type: WeaponType::Missile,
+            damage: 40.0,
+            fire_rate: 1.2,
+            projectile_speed: 60.0,
             energy_cost: 20.0,
             cooldown_timer: 0.0,
             spread: 0.0,
             alt_fire_charge: 0.0,
-            shield_damage_multiplier: 6.0, // Does 30 damage to shields
+            shield_damage_multiplier: 1.5,  // 60 damage to shields (60% of total)
+            hull_damage_multiplier: 1.0,     // 40 damage to hull (40% of total)
         }
     }
 
-    pub fn flak_cannon() -> Self {
+    /// Plasma - Balanced heavy weapon (1.2x shield, 1.3x hull)
+    /// Alt-fire: Charged shot
+    pub fn plasma() -> Self {
         Self {
-            weapon_type: WeaponType::FlakCannon,
-            damage: 20.0,
-            fire_rate: 1.5,
+            weapon_type: WeaponType::Plasma,
+            damage: 22.0,
+            fire_rate: 2.5,
             projectile_speed: 90.0,
-            energy_cost: 18.0,
+            energy_cost: 12.0,
             cooldown_timer: 0.0,
-            spread: 0.05,
+            spread: 0.02,
             alt_fire_charge: 0.0,
             shield_damage_multiplier: 1.2,
+            hull_damage_multiplier: 1.3,
         }
     }
 
-    pub fn beam_laser() -> Self {
+    /// Railgun - Armor piercing (0.6x shield, 2.5x hull, piercing)
+    /// Alt-fire: Overcharged piercing shot
+    pub fn railgun() -> Self {
         Self {
-            weapon_type: WeaponType::BeamLaser,
-            damage: 8.0, // DPS-based, continuous
-            fire_rate: 20.0, // Very high fire rate for beam effect
-            projectile_speed: 200.0,
-            energy_cost: 2.0,
+            weapon_type: WeaponType::Railgun,
+            damage: 60.0,
+            fire_rate: 0.8,
+            projectile_speed: 300.0,
+            energy_cost: 35.0,
             cooldown_timer: 0.0,
             spread: 0.0,
             alt_fire_charge: 0.0,
-            shield_damage_multiplier: 0.9,
+            shield_damage_multiplier: 0.6,  // 36 damage to shields
+            hull_damage_multiplier: 2.5,     // 150 damage to hull
+        }
+    }
+
+    /// Ion Cannon - Pure shield killer (5.0x shield, 0.1x hull)
+    /// Alt-fire: Shield disruptor pulse
+    pub fn ion_cannon() -> Self {
+        Self {
+            weapon_type: WeaponType::IonCannon,
+            damage: 8.0,
+            fire_rate: 3.0,
+            projectile_speed: 120.0,
+            energy_cost: 15.0,
+            cooldown_timer: 0.0,
+            spread: 0.0,
+            alt_fire_charge: 0.0,
+            shield_damage_multiplier: 5.0,  // 40 damage to shields
+            hull_damage_multiplier: 0.1,     // 0.8 damage to hull
+        }
+    }
+
+    /// Flak Cannon - Area denial (1.0x shield, 1.5x hull, area damage)
+    /// Alt-fire: Wide spread barrage
+    pub fn flak_cannon() -> Self {
+        Self {
+            weapon_type: WeaponType::FlakCannon,
+            damage: 18.0,
+            fire_rate: 2.0,
+            projectile_speed: 100.0,
+            energy_cost: 14.0,
+            cooldown_timer: 0.0,
+            spread: 0.04,
+            alt_fire_charge: 0.0,
+            shield_damage_multiplier: 1.0,
+            hull_damage_multiplier: 1.5,
+        }
+    }
+
+    /// Beam Laser - Continuous damage (2.0x shield, 0.8x hull)
+    /// Alt-fire: Focused beam (higher damage, narrower)
+    pub fn beam_laser() -> Self {
+        Self {
+            weapon_type: WeaponType::BeamLaser,
+            damage: 7.0,
+            fire_rate: 15.0,
+            projectile_speed: 250.0,
+            energy_cost: 2.5,
+            cooldown_timer: 0.0,
+            spread: 0.0,
+            alt_fire_charge: 0.0,
+            shield_damage_multiplier: 2.0,
+            hull_damage_multiplier: 0.8,
         }
     }
 }
+
 

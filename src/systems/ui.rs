@@ -4,6 +4,7 @@ use crate::components::combat::{Health, Shield, Energy, WeaponMount};
 use crate::components::resources::Inventory;
 use crate::components::upgrades::{PlayerUpgrades, UpgradeType, UpgradeCategory};
 use crate::resources::GameState;
+use crate::systems::save_load;
 
 /// HUD root marker
 #[derive(Component)]
@@ -29,6 +30,34 @@ pub struct ResourceDisplay;
 #[derive(Component)]
 pub struct WeaponDisplay;
 
+/// Resource text marker
+#[derive(Component)]
+pub struct ResourceText {
+    pub resource_type: crate::components::resources::ResourceType,
+}
+
+/// Upgrade notification marker
+#[derive(Component)]
+pub struct UpgradeNotification;
+
+/// Upgrade notification pulse animation
+#[derive(Component)]
+pub struct UpgradeNotificationPulse {
+    pub pulse_timer: f32,
+}
+
+/// Targeting reticule marker
+#[derive(Component)]
+pub struct TargetingReticule;
+
+/// Reticule center dot
+#[derive(Component)]
+pub struct ReticuleCenter;
+
+/// Reticule circle
+#[derive(Component)]
+pub struct ReticuleCircle;
+
 /// Update HUD system
 pub fn update_hud_system(
     mut commands: Commands,
@@ -38,13 +67,14 @@ pub fn update_hud_system(
     health_bar_query: Query<Entity, With<HealthBar>>,
     shield_bar_query: Query<Entity, With<ShieldBar>>,
     energy_bar_query: Query<Entity, With<EnergyBar>>,
+    mut resource_text_query: Query<(&mut Text, &ResourceText)>,
 ) {
     // Create HUD if it doesn't exist
     if hud_query.is_empty() {
         setup_hud(&mut commands);
     }
     
-    if let Ok((health, shield, energy, weapon_mount)) = player_query.get_single() {
+    if let Ok((health, shield, energy, _weapon_mount)) = player_query.get_single() {
         // Update health bar
         for entity in health_bar_query.iter() {
             let health_percent = (health.current / health.max).clamp(0.0, 1.0);
@@ -84,9 +114,77 @@ pub fn update_hud_system(
             );
         }
     }
+    
+    // Update resource text displays
+    for (mut text, resource_text) in resource_text_query.iter_mut() {
+        use crate::components::resources::ResourceType;
+        let (name, value) = match resource_text.resource_type {
+            ResourceType::ScrapMetal => ("SCRAP", inventory.scrap_metal),
+            ResourceType::EnergyCores => ("CORES", inventory.energy_cores),
+            ResourceType::RareMinerals => ("MINERALS", inventory.rare_minerals),
+            ResourceType::TechComponents => ("TECH", inventory.tech_components),
+        };
+        text.sections[0].value = format!("{}: {}", name, value);
+    }
 }
 
 fn setup_hud(commands: &mut Commands) {
+    // Spawn targeting reticule (centered on screen)
+    commands.spawn((
+        NodeBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(50.0),
+                top: Val::Percent(50.0),
+                width: Val::Px(30.0),
+                height: Val::Px(30.0),
+                margin: UiRect {
+                    left: Val::Px(-15.0),
+                    top: Val::Px(-15.0),
+                    ..default()
+                },
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            ..default()
+        },
+        TargetingReticule,
+    )).with_children(|parent| {
+        // Circle
+        parent.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Px(30.0),
+                    height: Val::Px(30.0),
+                    border: UiRect::all(Val::Px(2.0)),
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                background_color: Color::NONE.into(),
+                border_color: Color::srgb(0.8, 1.0, 0.8).into(),
+                border_radius: BorderRadius::all(Val::Px(15.0)),
+                ..default()
+            },
+            ReticuleCircle,
+        ));
+        
+        // Center dot
+        parent.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Px(4.0),
+                    height: Val::Px(4.0),
+                    ..default()
+                },
+                background_color: Color::WHITE.into(),
+                border_radius: BorderRadius::all(Val::Px(2.0)),
+                ..default()
+            },
+            ReticuleCenter,
+        ));
+    });
+    
     commands
         .spawn((
             NodeBundle {
@@ -243,6 +341,90 @@ fn setup_hud(commands: &mut Commands) {
                     ));
                 });
             });
+            
+            // Resource display section
+            parent.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(5.0),
+                    margin: UiRect::top(Val::Px(15.0)),
+                    ..default()
+                },
+                ..default()
+            }).with_children(|parent| {
+                use crate::components::resources::ResourceType;
+                
+                // Scrap Metal
+                parent.spawn((
+                    TextBundle::from_section(
+                        "SCRAP: 0",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::srgb(0.7, 0.7, 0.7),
+                            ..default()
+                        },
+                    ),
+                    ResourceText { resource_type: ResourceType::ScrapMetal },
+                ));
+                
+                // Energy Cores
+                parent.spawn((
+                    TextBundle::from_section(
+                        "CORES: 0",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::srgb(0.2, 0.8, 1.0),
+                            ..default()
+                        },
+                    ),
+                    ResourceText { resource_type: ResourceType::EnergyCores },
+                ));
+                
+                // Rare Minerals
+                parent.spawn((
+                    TextBundle::from_section(
+                        "MINERALS: 0",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::srgb(0.8, 0.2, 0.8),
+                            ..default()
+                        },
+                    ),
+                    ResourceText { resource_type: ResourceType::RareMinerals },
+                ));
+                
+                // Tech Components
+                parent.spawn((
+                    TextBundle::from_section(
+                        "TECH: 0",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::srgb(1.0, 0.8, 0.2),
+                            ..default()
+                        },
+                    ),
+                    ResourceText { resource_type: ResourceType::TechComponents },
+                ));
+            });
+            
+            // Upgrade notification
+            parent.spawn((
+                TextBundle::from_section(
+                    "⚡ UPGRADES AVAILABLE (U)",
+                    TextStyle {
+                        font_size: 16.0,
+                        color: Color::srgb(1.0, 0.8, 0.2),
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::top(Val::Px(20.0)),
+                    ..default()
+                }),
+                UpgradeNotification,
+                UpgradeNotificationPulse { pulse_timer: 0.0 },
+                Visibility::Hidden,
+            ));
         });
 }
 
@@ -326,11 +508,20 @@ pub fn cleanup_main_menu(mut commands: Commands, query: Query<Entity, With<MainM
 
 /// Main menu system
 pub fn main_menu_system(
+    mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next_state: ResMut<NextState<GameState>>,
+    player_query: Query<Entity, With<Player>>,
 ) {
     if keyboard.just_pressed(KeyCode::Enter) {
         println!("[UI System] Starting game...");
+        
+        // If no player exists (e.g., after dying and returning to menu), restart the game
+        if player_query.is_empty() {
+            println!("[UI System] No player found, setting restart flag");
+            commands.insert_resource(RestartGameFlag);
+        }
+        
         next_state.set(GameState::InGame);
     }
 }
@@ -419,12 +610,23 @@ pub fn setup_upgrade_menu(
                     },
                 )
                 .with_style(Style {
-                    margin: UiRect::bottom(Val::Px(30.0)),
+                    margin: UiRect::bottom(Val::Px(10.0)),
                     ..default()
                 }),
                 ResourceDisplay,
             ));
             
+            // Scrollable container for upgrades
+            parent.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    overflow: Overflow::clip_y(),
+                    max_height: Val::Vh(65.0),
+                    width: Val::Percent(100.0),
+                    ..default()
+                },
+                ..default()
+            }).with_children(|scroll_parent| {
             // Categories
             for category in [
                 UpgradeCategory::Hull,
@@ -544,11 +746,12 @@ pub fn setup_upgrade_menu(
                     upgrade_index += 1;
                 }
             }
+            }); // End scrollable container
             
-            // Instructions
+            // Instructions (outside scroll area, always visible)
             parent.spawn(
                 TextBundle::from_section(
-                    "Click buttons or press number keys (1-9) to purchase upgrades | ESC to return",
+                    "Click buttons or press number keys (1-9) to purchase upgrades | ESC to return | Scroll with mouse wheel",
                     TextStyle {
                         font_size: 18.0,
                         color: Color::srgb(0.6, 0.6, 0.6),
@@ -556,7 +759,7 @@ pub fn setup_upgrade_menu(
                     },
                 )
                 .with_style(Style {
-                    margin: UiRect::top(Val::Px(30.0)),
+                    margin: UiRect::top(Val::Px(15.0)),
                     ..default()
                 }),
             );
@@ -854,6 +1057,409 @@ fn get_upgrades_for_category(category: UpgradeCategory) -> Vec<UpgradeType> {
             WeaponFireRate1, WeaponFireRate2,
             UnlockPlasma, UnlockMissile, UnlockRailgun,
         ],
+    }
+}
+
+/// Check for pause key press
+pub fn check_pause_key(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    current_state: Res<State<GameState>>,
+) {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        match current_state.get() {
+            GameState::InGame => {
+                println!("[UI System] Game paused");
+                next_state.set(GameState::Paused);
+            }
+            GameState::Paused => {
+                println!("[UI System] Game resumed");
+                next_state.set(GameState::InGame);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Pause menu marker
+#[derive(Component)]
+pub struct PauseMenuRoot;
+
+/// Pause menu button types
+#[derive(Component, Clone, Copy)]
+pub enum PauseMenuButton {
+    Resume,
+    Save,
+    Exit,
+}
+
+/// Setup pause menu
+pub fn setup_pause_menu(mut commands: Commands) {
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: Color::srgba(0.0, 0.0, 0.0, 0.8).into(),
+                ..default()
+            },
+            PauseMenuRoot,
+        ))
+        .with_children(|parent| {
+            parent.spawn(
+                TextBundle::from_section(
+                    "PAUSED",
+                    TextStyle {
+                        font_size: 60.0,
+                        color: Color::WHITE,
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::all(Val::Px(50.0)),
+                    ..default()
+                }),
+            );
+
+            // Resume button
+            spawn_menu_button(parent, "Resume (ESC)", PauseMenuButton::Resume);
+            
+            // Save button
+            spawn_menu_button(parent, "Save Game", PauseMenuButton::Save);
+            
+            // Exit button
+            spawn_menu_button(parent, "Exit to Main Menu", PauseMenuButton::Exit);
+        });
+}
+
+/// Cleanup pause menu
+pub fn cleanup_pause_menu(
+    mut commands: Commands,
+    query: Query<Entity, With<PauseMenuRoot>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Pause menu system
+pub fn pause_menu_system(
+    mut next_state: ResMut<NextState<GameState>>,
+    mut button_query: Query<
+        (&Interaction, &PauseMenuButton, &mut BackgroundColor),
+        Changed<Interaction>,
+    >,
+    player_query: Query<(&Transform, &Health, &Shield, &Energy), With<Player>>,
+    inventory: Res<Inventory>,
+    upgrades: Res<PlayerUpgrades>,
+) {
+    for (interaction, button_type, mut bg_color) in button_query.iter_mut() {
+        match *interaction {
+            Interaction::Pressed => {
+                match button_type {
+                    PauseMenuButton::Resume => {
+                        println!("[UI System] Resuming game...");
+                        next_state.set(GameState::InGame);
+                    }
+                    PauseMenuButton::Save => {
+                        println!("[UI System] Saving game...");
+                        match save_load::save_game(&player_query, &inventory, &upgrades) {
+                            Ok(_) => println!("[UI System] Game saved successfully!"),
+                            Err(e) => println!("[UI System] Failed to save game: {}", e),
+                        }
+                    }
+                    PauseMenuButton::Exit => {
+                        println!("[UI System] Exiting to main menu...");
+                        next_state.set(GameState::MainMenu);
+                    }
+                }
+            }
+            Interaction::Hovered => {
+                *bg_color = Color::srgb(0.4, 0.4, 0.5).into();
+            }
+            Interaction::None => {
+                *bg_color = Color::srgb(0.2, 0.2, 0.3).into();
+            }
+        }
+    }
+}
+
+/// Game over menu marker
+#[derive(Component)]
+pub struct GameOverMenuRoot;
+
+/// Game over button types
+#[derive(Component, Clone, Copy)]
+pub enum GameOverButton {
+    Restart,
+    LoadSave,
+    MainMenu,
+}
+
+/// Setup game over menu
+pub fn setup_game_over_menu(mut commands: Commands) {
+    let save_exists = save_load::save_exists();
+    
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: Color::srgba(0.1, 0.0, 0.0, 0.9).into(),
+                ..default()
+            },
+            GameOverMenuRoot,
+        ))
+        .with_children(|parent| {
+            parent.spawn(
+                TextBundle::from_section(
+                    "GAME OVER",
+                    TextStyle {
+                        font_size: 70.0,
+                        color: Color::srgb(1.0, 0.2, 0.2),
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::all(Val::Px(50.0)),
+                    ..default()
+                }),
+            );
+
+            parent.spawn(
+                TextBundle::from_section(
+                    "Your ship has been destroyed",
+                    TextStyle {
+                        font_size: 24.0,
+                        color: Color::srgb(0.8, 0.8, 0.8),
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    margin: UiRect::bottom(Val::Px(40.0)),
+                    ..default()
+                }),
+            );
+
+            // Restart button
+            spawn_menu_button(parent, "Restart (New Game)", GameOverButton::Restart);
+            
+            // Load save button (only if save exists)
+            if save_exists {
+                spawn_menu_button(parent, "Load Saved Game", GameOverButton::LoadSave);
+            }
+            
+            // Main menu button
+            spawn_menu_button(parent, "Main Menu", GameOverButton::MainMenu);
+        });
+}
+
+/// Cleanup game over menu
+pub fn cleanup_game_over_menu(
+    mut commands: Commands,
+    query: Query<Entity, With<GameOverMenuRoot>>,
+) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Cleanup HUD when entering game over
+pub fn cleanup_hud_on_game_over(
+    mut commands: Commands,
+    hud_query: Query<Entity, With<HudRoot>>,
+) {
+    for entity in hud_query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Game over menu system
+pub fn game_over_menu_system(
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut button_query: Query<
+        (&Interaction, &GameOverButton, &mut BackgroundColor),
+        Changed<Interaction>,
+    >,
+) {
+    for (interaction, button_type, mut bg_color) in button_query.iter_mut() {
+        match *interaction {
+            Interaction::Pressed => {
+                match button_type {
+                    GameOverButton::Restart => {
+                        println!("[UI System] Restarting game...");
+                        // The restart will be handled by despawning and respawning the player
+                        commands.insert_resource(RestartGameFlag);
+                        next_state.set(GameState::InGame);
+                    }
+                    GameOverButton::LoadSave => {
+                        println!("[UI System] Loading saved game...");
+                        commands.insert_resource(LoadGameFlag);
+                        next_state.set(GameState::InGame);
+                    }
+                    GameOverButton::MainMenu => {
+                        println!("[UI System] Returning to main menu...");
+                        next_state.set(GameState::MainMenu);
+                    }
+                }
+            }
+            Interaction::Hovered => {
+                *bg_color = Color::srgb(0.4, 0.4, 0.5).into();
+            }
+            Interaction::None => {
+                *bg_color = Color::srgb(0.2, 0.2, 0.3).into();
+            }
+        }
+    }
+}
+
+/// Helper function to spawn a menu button
+fn spawn_menu_button<T: Component>(parent: &mut ChildBuilder, text: &str, button_type: T) {
+    parent.spawn((
+        ButtonBundle {
+            style: Style {
+                padding: UiRect::all(Val::Px(20.0)),
+                margin: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            background_color: Color::srgb(0.2, 0.2, 0.3).into(),
+            border_color: Color::srgb(0.4, 0.6, 1.0).into(),
+            ..default()
+        },
+        button_type,
+    )).with_children(|button_parent| {
+        button_parent.spawn(TextBundle::from_section(
+            text,
+            TextStyle {
+                font_size: 28.0,
+                color: Color::WHITE,
+                ..default()
+            },
+        ));
+    });
+}
+
+/// Flag resource to indicate game restart
+#[derive(Resource)]
+pub struct RestartGameFlag;
+
+/// Flag resource to indicate game load
+#[derive(Resource)]
+pub struct LoadGameFlag;
+
+/// Check upgrade availability and show/hide notification
+pub fn check_upgrade_availability_system(
+    inventory: Res<Inventory>,
+    upgrades: Res<PlayerUpgrades>,
+    mut notification_query: Query<&mut Visibility, With<UpgradeNotification>>,
+) {
+    let mut any_affordable = false;
+    
+    // Check all upgrade categories
+    for category in [
+        UpgradeCategory::Hull,
+        UpgradeCategory::Shields,
+        UpgradeCategory::Engines,
+        UpgradeCategory::PowerPlant,
+        UpgradeCategory::Weapons,
+    ] {
+        let upgrades_in_category = get_upgrades_for_category(category);
+        for upgrade_type in upgrades_in_category {
+            if upgrades.can_purchase(upgrade_type) && inventory.can_afford(&upgrade_type.cost()) {
+                any_affordable = true;
+                break;
+            }
+        }
+        if any_affordable {
+            break;
+        }
+    }
+    
+    // Show or hide notification
+    for mut visibility in notification_query.iter_mut() {
+        *visibility = if any_affordable {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
+/// Pulse animation for upgrade notification
+pub fn update_upgrade_notification_pulse(
+    time: Res<Time>,
+    mut query: Query<(&mut UpgradeNotificationPulse, &mut Transform), With<UpgradeNotification>>,
+) {
+    for (mut pulse, mut transform) in query.iter_mut() {
+        pulse.pulse_timer += time.delta_seconds();
+        
+        // Pulse period: 1.5 seconds
+        let pulse_value = (pulse.pulse_timer * std::f32::consts::TAU / 1.5).sin();
+        // Scale between 1.0 and 1.15
+        let scale = 1.0 + pulse_value * 0.075 + 0.075;
+        
+        transform.scale = Vec3::splat(scale);
+    }
+}
+
+/// Update targeting reticule color based on enemy targeting
+pub fn update_targeting_reticule_system(
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<&Transform, (With<crate::components::ai::Enemy>, Without<Player>)>,
+    mut circle_query: Query<&mut BorderColor, With<ReticuleCircle>>,
+    mut center_query: Query<&mut BackgroundColor, With<ReticuleCenter>>,
+) {
+    let Ok(player_transform) = player_query.get_single() else {
+        return;
+    };
+    
+    let forward = player_transform.forward();
+    let player_pos = player_transform.translation;
+    
+    // Check if any enemy is within crosshair cone (±5 degrees)
+    let target_cone_angle = 5.0_f32.to_radians();
+    let mut enemy_in_crosshair = false;
+    
+    for enemy_transform in enemy_query.iter() {
+        let to_enemy = (enemy_transform.translation - player_pos).normalize();
+        let dot = forward.dot(to_enemy);
+        
+        // dot = cos(angle), so if angle < threshold, we're aiming at enemy
+        if dot > target_cone_angle.cos() {
+            enemy_in_crosshair = true;
+            break;
+        }
+    }
+    
+    // Update colors based on targeting
+    let (circle_color, dot_color) = if enemy_in_crosshair {
+        (Color::srgb(1.0, 0.2, 0.2), Color::srgb(1.0, 0.2, 0.2)) // Red when targeting
+    } else {
+        (Color::srgb(0.8, 1.0, 0.8), Color::WHITE) // Green/white when not targeting
+    };
+    
+    for mut border_color in circle_query.iter_mut() {
+        *border_color = circle_color.into();
+    }
+    
+    for mut bg_color in center_query.iter_mut() {
+        *bg_color = dot_color.into();
     }
 }
 

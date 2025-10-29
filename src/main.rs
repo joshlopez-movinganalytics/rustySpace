@@ -32,6 +32,7 @@ fn main() {
         .add_systems(Update, (
             combat::weapon_firing_system,
             combat::projectile_movement_system,
+            combat::homing_projectile_system,
             combat::projectile_lifetime_system,
             combat::projectile_collision_system,
             combat::damage_system,
@@ -49,6 +50,8 @@ fn main() {
         .add_systems(Update, (
             resources_system::loot_collection_system,
             resources_system::spawn_loot_system,
+            resources_system::animate_loot_system,
+            resources_system::update_collection_particles,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             combat::energy_recharge_system,
@@ -63,6 +66,9 @@ fn main() {
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             ui::update_hud_system,
+            ui::update_targeting_reticule_system,
+            ui::check_upgrade_availability_system,
+            ui::update_upgrade_notification_pulse,
             ui::setup_enemy_health_bars,
             ui::update_enemy_health_bars,
             ui::apply_upgrades_to_player,
@@ -70,6 +76,7 @@ fn main() {
         .add_systems(OnEnter(GameState::MainMenu), (
             ui::setup_main_menu,
             movement::release_cursor_lock,
+            spawning::cleanup_on_main_menu,
         ))
         .add_systems(OnExit(GameState::MainMenu), ui::cleanup_main_menu)
         .add_systems(Update, ui::main_menu_system.run_if(in_state(GameState::MainMenu)))
@@ -84,6 +91,27 @@ fn main() {
         ))
         .add_systems(Update, ui::upgrade_menu_system.run_if(in_state(GameState::Upgrade)))
         .add_systems(Update, ui::check_upgrade_key.run_if(in_state(GameState::InGame)))
+        .add_systems(Update, ui::check_pause_key.run_if(in_state(GameState::InGame).or_else(in_state(GameState::Paused))))
+        .add_systems(OnEnter(GameState::Paused), (
+            ui::setup_pause_menu,
+            movement::release_cursor_lock,
+        ))
+        .add_systems(OnExit(GameState::Paused), (
+            ui::cleanup_pause_menu,
+            movement::manage_cursor_lock,
+        ))
+        .add_systems(Update, ui::pause_menu_system.run_if(in_state(GameState::Paused)))
+        .add_systems(OnEnter(GameState::GameOver), (
+            ui::setup_game_over_menu,
+            ui::cleanup_hud_on_game_over,
+            movement::release_cursor_lock,
+        ))
+        .add_systems(OnExit(GameState::GameOver), ui::cleanup_game_over_menu)
+        .add_systems(Update, ui::game_over_menu_system.run_if(in_state(GameState::GameOver)))
+        .add_systems(OnEnter(GameState::InGame), (
+            spawning::handle_restart_game,
+            spawning::handle_load_game,
+        ))
         .run();
 }
 

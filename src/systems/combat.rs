@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use crate::components::ship::*;
 use crate::components::combat::*;
+use crate::components::ai::Enemy;
+use crate::resources::GameState;
 
 /// Weapon firing system
 pub fn weapon_firing_system(
@@ -60,8 +62,7 @@ pub fn weapon_firing_system(
                 // Burst fire for laser
                 if weapon.weapon_type == WeaponType::Laser && weapon.cooldown_timer <= 0.0 && energy.current >= weapon.energy_cost * 3.0 {
                     // Fire 3-shot burst
-                    for i in 0..3 {
-                        let delay = i as f32 * 0.05;
+                    for _i in 0..3 {
                         // For simplicity, fire all 3 immediately with slight spread
                         fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, true);
                     }
@@ -135,6 +136,13 @@ fn fire_weapon(
     
     let (mesh, color) = get_weapon_visual(weapon.weapon_type, meshes);
     
+    // Determine homing and area damage based on weapon type
+    let (homing_strength, area_damage) = match weapon.weapon_type {
+        WeaponType::Missile => (15.0, 8.0),      // Strong homing, large area
+        WeaponType::FlakCannon => (0.0, 5.0),    // No homing, medium area
+        _ => (0.0, 0.0),                         // No special effects
+    };
+    
     commands.spawn((
         PbrBundle {
             mesh,
@@ -153,7 +161,11 @@ fn fire_weapon(
             owner,
             weapon_type: weapon.weapon_type,
             shield_damage_multiplier: weapon.shield_damage_multiplier,
+            hull_damage_multiplier: weapon.hull_damage_multiplier,
             piercing: false,
+            area_damage,
+            homing_strength,
+            homing_target: None,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -203,7 +215,11 @@ fn fire_weapon_spread(
             owner,
             weapon_type: weapon.weapon_type,
             shield_damage_multiplier: weapon.shield_damage_multiplier,
+            hull_damage_multiplier: weapon.hull_damage_multiplier,
             piercing: false,
+            area_damage: 0.0,
+            homing_strength: 0.0,
+            homing_target: None,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -250,7 +266,11 @@ fn fire_missile_swarm(
                 owner,
                 weapon_type: weapon.weapon_type,
                 shield_damage_multiplier: weapon.shield_damage_multiplier,
+                hull_damage_multiplier: weapon.hull_damage_multiplier,
                 piercing: false,
+                area_damage: 6.0,        // Swarm missiles have smaller area
+                homing_strength: 12.0,    // Slightly weaker homing
+                homing_target: None,
             },
             Velocity(projectile_velocity),
             Faction::Player,
@@ -294,7 +314,11 @@ fn fire_piercing_railgun(
             owner,
             weapon_type: weapon.weapon_type,
             shield_damage_multiplier: weapon.shield_damage_multiplier,
+            hull_damage_multiplier: weapon.hull_damage_multiplier,
             piercing: true, // Pierces through enemies
+            area_damage: 0.0,
+            homing_strength: 0.0,
+            homing_target: None,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -340,7 +364,11 @@ fn fire_charged_plasma(
             owner,
             weapon_type: weapon.weapon_type,
             shield_damage_multiplier: weapon.shield_damage_multiplier,
+            hull_damage_multiplier: weapon.hull_damage_multiplier,
             piercing: false,
+            area_damage: charge * 3.0,  // Charged shots have area damage
+            homing_strength: 0.0,
+            homing_target: None,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -401,6 +429,79 @@ pub fn projectile_movement_system(
     }
 }
 
+/// Homing projectile system - makes missiles track enemies
+pub fn homing_projectile_system(
+    time: Res<Time>,
+    mut projectiles: Query<(&mut Projectile, &mut Velocity, &Transform, &Faction)>,
+    enemies: Query<(Entity, &Transform, &Faction), (With<Health>, Without<Projectile>)>,
+) {
+    let dt = time.delta_seconds();
+    
+    for (mut projectile, mut velocity, proj_transform, proj_faction) in projectiles.iter_mut() {
+        // Only process homing projectiles
+        if projectile.homing_strength <= 0.0 {
+            continue;
+        }
+        
+        // Try to find target
+        let target_pos = if let Some(target_entity) = projectile.homing_target {
+            // Check if target still exists
+            if let Ok((_, target_transform, _)) = enemies.get(target_entity) {
+                Some(target_transform.translation)
+            } else {
+                // Target destroyed, find new one
+                projectile.homing_target = None;
+                None
+            }
+        } else {
+            None
+        };
+        
+        // If no target, find closest enemy
+        let target_pos = target_pos.or_else(|| {
+            let mut closest_dist = f32::MAX;
+            let mut closest_pos = None;
+            let mut closest_entity = None;
+            
+            for (entity, enemy_transform, enemy_faction) in enemies.iter() {
+                // Don't target same faction
+                if proj_faction == enemy_faction {
+                    continue;
+                }
+                
+                let dist = proj_transform.translation.distance(enemy_transform.translation);
+                if dist < closest_dist && dist < 100.0 { // Max lock range
+                    closest_dist = dist;
+                    closest_pos = Some(enemy_transform.translation);
+                    closest_entity = Some(entity);
+                }
+            }
+            
+            projectile.homing_target = closest_entity;
+            closest_pos
+        });
+        
+        // Apply homing if we have a target
+        if let Some(target_pos) = target_pos {
+            let to_target = (target_pos - proj_transform.translation).normalize();
+            let current_dir = velocity.0.normalize();
+            
+            // Blend current direction with target direction
+            let homing_factor = projectile.homing_strength * dt;
+            let new_dir = (current_dir + to_target * homing_factor).normalize();
+            
+            // Update velocity maintaining speed
+            let speed = velocity.0.length();
+            velocity.0 = new_dir * speed;
+            
+            // Debug: Log when missile first acquires target (only once)
+            if *proj_faction == Faction::Player && projectile.lifetime > 4.9 && projectile.lifetime < 5.0 {
+                println!("[Combat] Missile acquired target, homing strength: {}", projectile.homing_strength);
+            }
+        }
+    }
+}
+
 /// Projectile lifetime system
 pub fn projectile_lifetime_system(
     mut commands: Commands,
@@ -417,14 +518,16 @@ pub fn projectile_lifetime_system(
     }
 }
 
-/// Projectile collision system
+/// Projectile collision system with area damage support
 pub fn projectile_collision_system(
     mut commands: Commands,
     projectiles: Query<(Entity, &Transform, &Projectile, &Faction)>,
     mut ships: Query<(Entity, &Transform, &mut Health, &mut Shield, &Faction), Without<Projectile>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (proj_entity, proj_transform, projectile, proj_faction) in projectiles.iter() {
-        let mut hit_something = false;
+        let mut hit_primary = false;
         
         for (ship_entity, ship_transform, mut health, mut shield, ship_faction) in ships.iter_mut() {
             // Don't hit own faction or owner
@@ -432,38 +535,63 @@ pub fn projectile_collision_system(
                 continue;
             }
             
-            // Simple sphere collision
+            // Simple sphere collision for direct hit
             let distance = proj_transform.translation.distance(ship_transform.translation);
-            if distance < 2.0 {
-                // Apply damage with shield multiplier
-                let hull_damage = projectile.damage;
-                let shield_damage = projectile.damage * projectile.shield_damage_multiplier;
+            
+            // Check for area damage hit
+            let in_area = projectile.area_damage > 0.0 && distance < projectile.area_damage;
+            let direct_hit = distance < 2.0;
+            
+            if direct_hit || (in_area && hit_primary) {
+                // Calculate damage based on hit type
+                let damage_mult = if direct_hit { 1.0 } else { 0.5 }; // Area damage is 50%
+                
+                let hull_damage = projectile.damage * projectile.hull_damage_multiplier * damage_mult;
+                let shield_damage = projectile.damage * projectile.shield_damage_multiplier * damage_mult;
+                
+                // Debug logging (only for player projectiles hitting enemies)
+                if *proj_faction == Faction::Player && direct_hit {
+                    println!("[Combat] {:?} hit: Shield dmg={:.1} (base={:.1}x{:.2}), Hull dmg={:.1} (base={:.1}x{:.2})", 
+                        projectile.weapon_type, 
+                        shield_damage, projectile.damage, projectile.shield_damage_multiplier,
+                        hull_damage, projectile.damage, projectile.hull_damage_multiplier
+                    );
+                }
                 
                 // Hit shields first
                 if shield.current > 0.0 {
                     shield.current -= shield_damage;
                     shield.time_since_last_hit = 0.0;
                     if shield.current < 0.0 {
-                        // Overflow damage to hull (not multiplied)
-                        health.current += shield.current / projectile.shield_damage_multiplier;
+                        // Overflow damage to hull (using hull multiplier)
+                        health.current += shield.current * projectile.hull_damage_multiplier / projectile.shield_damage_multiplier;
                         shield.current = 0.0;
                     }
                 } else {
                     health.current -= hull_damage;
                 }
                 
-                hit_something = true;
-                
-                // Only despawn if not piercing, or break after hit
-                if !projectile.piercing {
-                    commands.entity(proj_entity).despawn();
-                    break;
+                if direct_hit {
+                    hit_primary = true;
+                    
+                    // Spawn area damage effect for missiles
+                    if projectile.area_damage > 0.0 {
+                        crate::systems::effects::spawn_explosion(
+                            &mut commands,
+                            &mut meshes,
+                            &mut materials,
+                            proj_transform.translation,
+                        );
+                    }
+                    
+                    // Only despawn if not piercing
+                    if !projectile.piercing {
+                        commands.entity(proj_entity).despawn();
+                        break;
+                    }
                 }
             }
         }
-        
-        // Piercing projectiles still despawn after hitting, just not on first hit
-        // This is handled by the flag above
     }
 }
 
@@ -504,10 +632,11 @@ pub fn ship_death_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    query: Query<(Entity, &Transform), With<DeadShip>>,
+    mut next_state: ResMut<NextState<GameState>>,
+    query: Query<(Entity, &Transform, Option<&Enemy>), With<DeadShip>>,
     player_query: Query<Entity, With<Player>>,
 ) {
-    for (entity, transform) in query.iter() {
+    for (entity, transform, enemy) in query.iter() {
         // Spawn explosion effect
         crate::systems::effects::spawn_explosion(
             &mut commands,
@@ -519,11 +648,17 @@ pub fn ship_death_system(
         // Check if it's the player
         if player_query.contains(entity) {
             println!("[Combat System] Player died! Game Over");
-            // TODO: Handle game over
-        } else {
+            next_state.set(GameState::GameOver);
+        } else if let Some(enemy) = enemy {
             println!("[Combat System] Enemy ship destroyed");
-            // Spawn loot before despawning
-            commands.entity(entity).try_insert(ShouldSpawnLoot);
+            // Spawn loot immediately
+            crate::systems::resources_system::spawn_loot_for_enemy(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                transform,
+                enemy,
+            );
         }
         
         commands.entity(entity).despawn_recursive();
