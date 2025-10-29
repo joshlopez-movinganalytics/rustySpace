@@ -635,7 +635,7 @@ pub fn setup_upgrade_menu(
                 UpgradeCategory::PowerPlant,
                 UpgradeCategory::Weapons,
             ] {
-                parent.spawn(
+                scroll_parent.spawn(
                     TextBundle::from_section(
                         format!("{:?} Upgrades", category),
                         TextStyle {
@@ -709,7 +709,7 @@ pub fn setup_upgrade_menu(
                         )
                     };
                     
-                    parent.spawn((
+                    scroll_parent.spawn((
                         ButtonBundle {
                             style: Style {
                                 padding: UiRect::all(Val::Px(10.0)),
