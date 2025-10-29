@@ -4,6 +4,52 @@ use crate::components::combat::*;
 use crate::components::ai::Enemy;
 use crate::resources::GameState;
 
+/// Weapon state management system (heat, ammo, reload)
+pub fn weapon_state_system(
+    time: Res<Time>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut query: Query<&mut WeaponMount, With<Player>>,
+) {
+    let dt = time.delta_seconds();
+    
+    for mut weapon_mount in query.iter_mut() {
+        for weapon in weapon_mount.weapons.iter_mut() {
+            // Heat dissipation
+            if weapon.max_heat > 0.0 && weapon.heat > 0.0 {
+                weapon.heat = (weapon.heat - weapon.cooling_rate * dt).max(0.0);
+            }
+            
+            // Handle reloading
+            if weapon.is_reloading {
+                weapon.reload_timer += dt;
+                if weapon.reload_timer >= weapon.reload_time {
+                    // Reload complete
+                    let ammo_needed = weapon.max_ammo - weapon.current_ammo;
+                    let ammo_to_load = ammo_needed.min(weapon.reserve_ammo);
+                    weapon.current_ammo += ammo_to_load;
+                    weapon.reserve_ammo -= ammo_to_load;
+                    weapon.is_reloading = false;
+                    weapon.reload_timer = 0.0;
+                    println!("[Combat] Reload complete! Ammo: {}/{}", weapon.current_ammo, weapon.reserve_ammo);
+                }
+            }
+        }
+        
+        // Manual reload with R key
+        if keyboard.just_pressed(KeyCode::KeyR) {
+            let current_weapon_idx = weapon_mount.current_weapon;
+            if let Some(weapon) = weapon_mount.weapons.get_mut(current_weapon_idx) {
+                // Only reload if weapon has ammo system and not already reloading
+                if weapon.max_ammo > 0 && !weapon.is_reloading && weapon.current_ammo < weapon.max_ammo && weapon.reserve_ammo > 0 {
+                    weapon.is_reloading = true;
+                    weapon.reload_timer = 0.0;
+                    println!("[Combat] Reloading...");
+                }
+            }
+        }
+    }
+}
+
 /// Weapon firing system
 pub fn weapon_firing_system(
     mut commands: Commands,
@@ -50,8 +96,22 @@ pub fn weapon_firing_system(
         // Primary fire (Left Mouse)
         if mouse.pressed(MouseButton::Left) {
             if let Some(weapon) = weapon_mount.weapons.get_mut(current_weapon_idx) {
-                if weapon.cooldown_timer <= 0.0 && energy.current >= weapon.energy_cost {
+                // Check all firing conditions
+                let can_fire = weapon.cooldown_timer <= 0.0 
+                    && energy.current >= weapon.energy_cost
+                    && !weapon.is_reloading
+                    && (weapon.max_heat == 0.0 || weapon.heat < weapon.max_heat) // Not overheated
+                    && (weapon.max_ammo == 0 || weapon.current_ammo > 0); // Has ammo or infinite
+                
+                if can_fire {
                     fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, false);
+                } else if weapon.max_ammo > 0 && weapon.current_ammo == 0 && !weapon.is_reloading {
+                    // Auto-reload when trying to fire with empty mag
+                    if weapon.reserve_ammo > 0 {
+                        weapon.is_reloading = true;
+                        weapon.reload_timer = 0.0;
+                        println!("[Combat] Auto-reloading...");
+                    }
                 }
             }
         }
@@ -122,6 +182,30 @@ fn fire_weapon(
     weapon.cooldown_timer = 1.0 / weapon.fire_rate;
     energy.current -= weapon.energy_cost;
     
+    // Consume heat
+    if weapon.max_heat > 0.0 {
+        weapon.heat += weapon.heat_per_shot;
+        if weapon.heat >= weapon.max_heat {
+            println!("[Combat] {} overheated! Cooling down...", match weapon.weapon_type {
+                WeaponType::Laser => "Laser",
+                WeaponType::BeamLaser => "Beam Laser",
+                _ => "Weapon",
+            });
+        }
+    }
+    
+    // Consume ammo
+    if weapon.max_ammo > 0 {
+        weapon.current_ammo = weapon.current_ammo.saturating_sub(1);
+        if weapon.current_ammo == 0 {
+            println!("[Combat] {} out of ammo!", match weapon.weapon_type {
+                WeaponType::Autocannon => "Autocannon",
+                WeaponType::Missile => "Missiles",
+                _ => "Weapon",
+            });
+        }
+    }
+    
     let forward = transform.forward();
     let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
     
@@ -183,6 +267,11 @@ fn fire_weapon_spread(
     energy: &mut Energy,
 ) {
     energy.current -= weapon.energy_cost;
+    
+    // Consume ammo for spread shots
+    if weapon.max_ammo > 0 {
+        weapon.current_ammo = weapon.current_ammo.saturating_sub(1);
+    }
     
     let forward = transform.forward();
     let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
@@ -591,7 +680,19 @@ pub fn projectile_collision_system(
                         shield.current = 0.0;
                     }
                 } else {
+                    // Hull hit - spawn sparks
                     health.current -= hull_damage;
+                    
+                    if direct_hit {
+                        let projectile_dir = (proj_transform.translation - ship_transform.translation).normalize();
+                        crate::systems::effects::spawn_hull_spark_effect(
+                            &mut commands,
+                            &mut meshes,
+                            &mut materials,
+                            proj_transform.translation,
+                            projectile_dir,
+                        );
+                    }
                 }
                 
                 if direct_hit {

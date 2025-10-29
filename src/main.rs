@@ -30,6 +30,7 @@ fn main() {
         .init_resource::<systems::movement::MouseFlightSettings>()
         .init_resource::<systems::movement::MouseFlightState>()
         .add_systems(Update, (
+            combat::weapon_state_system,
             combat::weapon_firing_system,
             combat::projectile_movement_system,
             combat::homing_projectile_system,
@@ -60,6 +61,7 @@ fn main() {
         .add_systems(Update, (
             systems::effects::update_explosions,
             systems::effects::update_shield_effects,
+            systems::effects::update_hull_spark_effects,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             systems::visuals::update_starfield,
@@ -68,6 +70,7 @@ fn main() {
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             ui::update_hud_system,
+            ui::update_weapon_hud_system,
             ui::update_targeting_reticule_system,
             ui::check_upgrade_availability_system,
             ui::update_upgrade_notification_pulse,

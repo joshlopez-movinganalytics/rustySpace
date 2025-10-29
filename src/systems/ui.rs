@@ -30,6 +30,26 @@ pub struct ResourceDisplay;
 #[derive(Component)]
 pub struct WeaponDisplay;
 
+/// Weapon name text marker
+#[derive(Component)]
+pub struct WeaponNameText;
+
+/// Heat bar marker
+#[derive(Component)]
+pub struct HeatBar;
+
+/// Ammo text marker
+#[derive(Component)]
+pub struct AmmoText;
+
+/// Charge bar marker (for plasma charging)
+#[derive(Component)]
+pub struct ChargeBar;
+
+/// Reload indicator marker
+#[derive(Component)]
+pub struct ReloadIndicator;
+
 /// Resource text marker
 #[derive(Component)]
 pub struct ResourceText {
@@ -159,6 +179,95 @@ pub fn cleanup_targeting_reticule(
     }
     for entity in lead_query.iter() {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Update weapon status HUD system
+pub fn update_weapon_hud_system(
+    mut commands: Commands,
+    player_query: Query<&WeaponMount, With<Player>>,
+    mut weapon_name_query: Query<&mut Text, With<WeaponNameText>>,
+    mut heat_bar_query: Query<Entity, With<HeatBar>>,
+    mut ammo_text_query: Query<&mut Text, (With<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>)>,
+    mut charge_bar_query: Query<Entity, With<ChargeBar>>,
+    mut reload_text_query: Query<&mut Text, (With<ReloadIndicator>, Without<AmmoText>, Without<WeaponNameText>)>,
+) {
+    if let Ok(weapon_mount) = player_query.get_single() {
+        if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
+            // Update weapon name
+            for mut text in weapon_name_query.iter_mut() {
+                let weapon_name = match weapon.weapon_type {
+                    crate::components::combat::WeaponType::Laser => "LASER",
+                    crate::components::combat::WeaponType::Autocannon => "AUTOCANNON",
+                    crate::components::combat::WeaponType::Plasma => "PLASMA",
+                    crate::components::combat::WeaponType::Missile => "MISSILE",
+                    crate::components::combat::WeaponType::Railgun => "RAILGUN",
+                    crate::components::combat::WeaponType::IonCannon => "ION CANNON",
+                    crate::components::combat::WeaponType::FlakCannon => "FLAK CANNON",
+                    crate::components::combat::WeaponType::BeamLaser => "BEAM LASER",
+                };
+                text.sections[0].value = format!("WEAPON: {}", weapon_name);
+            }
+            
+            // Update heat bar
+            for entity in heat_bar_query.iter_mut() {
+                let heat_percent = if weapon.max_heat > 0.0 {
+                    (weapon.heat / weapon.max_heat).clamp(0.0, 1.0) * 100.0
+                } else {
+                    0.0
+                };
+                
+                commands.entity(entity).insert(Style {
+                    width: Val::Percent(heat_percent),
+                    height: Val::Px(15.0),
+                    ..default()
+                });
+            }
+            
+            // Update ammo text
+            for mut text in ammo_text_query.iter_mut() {
+                if weapon.max_ammo > 0 {
+                    text.sections[0].value = format!("AMMO: {}/{}", weapon.current_ammo, weapon.reserve_ammo);
+                    // Color based on ammo status
+                    if weapon.current_ammo == 0 {
+                        text.sections[0].style.color = Color::srgb(1.0, 0.2, 0.2);
+                    } else if weapon.current_ammo < weapon.max_ammo / 4 {
+                        text.sections[0].style.color = Color::srgb(1.0, 0.8, 0.2);
+                    } else {
+                        text.sections[0].style.color = Color::WHITE;
+                    }
+                } else {
+                    text.sections[0].value = "AMMO: ∞".to_string();
+                    text.sections[0].style.color = Color::srgb(0.7, 0.7, 0.7);
+                }
+            }
+            
+            // Update charge bar (for plasma)
+            for entity in charge_bar_query.iter_mut() {
+                let charge_percent = if weapon.weapon_type == crate::components::combat::WeaponType::Plasma {
+                    (weapon.alt_fire_charge / 2.0).clamp(0.0, 1.0) * 100.0 // Max charge is 2.0 seconds
+                } else {
+                    0.0
+                };
+                
+                commands.entity(entity).insert(Style {
+                    width: Val::Percent(charge_percent),
+                    height: Val::Px(15.0),
+                    ..default()
+                });
+            }
+            
+            // Update reload indicator
+            for mut text in reload_text_query.iter_mut() {
+                if weapon.is_reloading {
+                    let reload_percent = ((weapon.reload_timer / weapon.reload_time) * 100.0).min(100.0);
+                    text.sections[0].value = format!("RELOADING... {}%", reload_percent as u32);
+                    text.sections[0].style.color = Color::srgb(1.0, 0.8, 0.2);
+                } else {
+                    text.sections[0].value = "".to_string();
+                }
+            }
+        }
     }
 }
 
@@ -388,6 +497,144 @@ fn setup_hud(commands: &mut Commands) {
                         EnergyBar,
                     ));
                 });
+            });
+            
+            // Weapon status section
+            parent.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(5.0),
+                    margin: UiRect::top(Val::Px(15.0)),
+                    ..default()
+                },
+                ..default()
+            }).with_children(|parent| {
+                // Weapon name
+                parent.spawn((
+                    TextBundle::from_section(
+                        "WEAPON: LASER",
+                        TextStyle {
+                            font_size: 16.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ),
+                    WeaponNameText,
+                ));
+                
+                // Heat bar (for lasers)
+                parent.spawn(NodeBundle {
+                    style: Style {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(3.0),
+                        ..default()
+                    },
+                    ..default()
+                }).with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "HEAT",
+                        TextStyle {
+                            font_size: 12.0,
+                            color: Color::srgb(0.8, 0.8, 0.8),
+                            ..default()
+                        },
+                    ));
+                    
+                    parent.spawn(NodeBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(15.0),
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        background_color: Color::srgb(0.2, 0.2, 0.2).into(),
+                        border_color: Color::srgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    }).with_children(|parent| {
+                        parent.spawn((
+                            NodeBundle {
+                                style: Style {
+                                    width: Val::Percent(0.0),
+                                    height: Val::Px(15.0),
+                                    ..default()
+                                },
+                                background_color: Color::srgb(1.0, 0.4, 0.2).into(),
+                                ..default()
+                            },
+                            HeatBar,
+                        ));
+                    });
+                });
+                
+                // Ammo display
+                parent.spawn((
+                    TextBundle::from_section(
+                        "AMMO: --/--",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::WHITE,
+                            ..default()
+                        },
+                    ),
+                    AmmoText,
+                ));
+                
+                // Charge bar (for plasma)
+                parent.spawn(NodeBundle {
+                    style: Style {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(3.0),
+                        ..default()
+                    },
+                    ..default()
+                }).with_children(|parent| {
+                    parent.spawn(TextBundle::from_section(
+                        "CHARGE",
+                        TextStyle {
+                            font_size: 12.0,
+                            color: Color::srgb(0.8, 0.8, 0.8),
+                            ..default()
+                        },
+                    ));
+                    
+                    parent.spawn(NodeBundle {
+                        style: Style {
+                            width: Val::Px(200.0),
+                            height: Val::Px(15.0),
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        background_color: Color::srgb(0.2, 0.2, 0.2).into(),
+                        border_color: Color::srgb(0.5, 0.5, 0.5).into(),
+                        ..default()
+                    }).with_children(|parent| {
+                        parent.spawn((
+                            NodeBundle {
+                                style: Style {
+                                    width: Val::Percent(0.0),
+                                    height: Val::Px(15.0),
+                                    ..default()
+                                },
+                                background_color: Color::srgb(0.2, 1.0, 0.4).into(),
+                                ..default()
+                            },
+                            ChargeBar,
+                        ));
+                    });
+                });
+                
+                // Reload indicator
+                parent.spawn((
+                    TextBundle::from_section(
+                        "",
+                        TextStyle {
+                            font_size: 14.0,
+                            color: Color::srgb(1.0, 0.8, 0.2),
+                            ..default()
+                        },
+                    ),
+                    ReloadIndicator,
+                ));
             });
             
             // Resource display section
