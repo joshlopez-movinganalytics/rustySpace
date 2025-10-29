@@ -58,6 +58,110 @@ pub struct ReticuleCenter;
 #[derive(Component)]
 pub struct ReticuleCircle;
 
+/// Lead indicator marker (shows where to aim for moving targets)
+#[derive(Component)]
+pub struct LeadIndicator;
+
+/// Setup targeting reticule (follows where bullets will go)
+pub fn setup_targeting_reticule(mut commands: Commands) {
+    println!("[UI System] Setting up targeting reticule");
+    
+    // Create reticule as an absolutely positioned container
+    commands.spawn((
+        NodeBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(30.0),
+                height: Val::Px(30.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            z_index: ZIndex::Global(100),
+            background_color: Color::NONE.into(),
+            ..default()
+        },
+        TargetingReticule,
+    )).with_children(|parent| {
+        // Circle
+        parent.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Px(30.0),
+                    height: Val::Px(30.0),
+                    border: UiRect::all(Val::Px(2.0)),
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    ..default()
+                },
+                background_color: Color::NONE.into(),
+                border_color: Color::srgb(0.8, 1.0, 0.8).into(),
+                border_radius: BorderRadius::all(Val::Px(15.0)),
+                ..default()
+            },
+            ReticuleCircle,
+        ));
+        
+        // Center dot (centered within parent)
+        parent.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Px(4.0),
+                    height: Val::Px(4.0),
+                    position_type: PositionType::Relative,
+                    ..default()
+                },
+                background_color: Color::WHITE.into(),
+                border_radius: BorderRadius::all(Val::Px(2.0)),
+                ..default()
+            },
+            ReticuleCenter,
+        ));
+    });
+    
+    // Create lead indicator (separate from main reticule)
+    commands.spawn((
+        NodeBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(20.0),
+                height: Val::Px(20.0),
+                border: UiRect::all(Val::Px(2.0)),
+                ..default()
+            },
+            z_index: ZIndex::Global(99),
+            background_color: Color::NONE.into(),
+            border_color: Color::srgba(1.0, 0.5, 0.0, 0.8).into(),
+            visibility: Visibility::Hidden, // Hidden by default
+            ..default()
+        },
+        LeadIndicator,
+    ));
+}
+
+/// Cleanup targeting reticule
+pub fn cleanup_targeting_reticule(
+    mut commands: Commands,
+    reticule_query: Query<Entity, With<TargetingReticule>>,
+    lead_query: Query<Entity, With<LeadIndicator>>,
+) {
+    let count = reticule_query.iter().count();
+    if count > 0 {
+        println!("[UI System] Cleaning up {} targeting reticule(s)", count);
+    }
+    for entity in reticule_query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    for entity in lead_query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
 /// Update HUD system
 pub fn update_hud_system(
     mut commands: Commands,
@@ -129,62 +233,6 @@ pub fn update_hud_system(
 }
 
 fn setup_hud(commands: &mut Commands) {
-    // Spawn targeting reticule (centered on screen)
-    commands.spawn((
-        NodeBundle {
-            style: Style {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                top: Val::Percent(50.0),
-                width: Val::Px(30.0),
-                height: Val::Px(30.0),
-                margin: UiRect {
-                    left: Val::Px(-15.0),
-                    top: Val::Px(-15.0),
-                    ..default()
-                },
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            ..default()
-        },
-        TargetingReticule,
-    )).with_children(|parent| {
-        // Circle
-        parent.spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Px(30.0),
-                    height: Val::Px(30.0),
-                    border: UiRect::all(Val::Px(2.0)),
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                background_color: Color::NONE.into(),
-                border_color: Color::srgb(0.8, 1.0, 0.8).into(),
-                border_radius: BorderRadius::all(Val::Px(15.0)),
-                ..default()
-            },
-            ReticuleCircle,
-        ));
-        
-        // Center dot
-        parent.spawn((
-            NodeBundle {
-                style: Style {
-                    width: Val::Px(4.0),
-                    height: Val::Px(4.0),
-                    ..default()
-                },
-                background_color: Color::WHITE.into(),
-                border_radius: BorderRadius::all(Val::Px(2.0)),
-                ..default()
-            },
-            ReticuleCenter,
-        ));
-    });
-    
     commands
         .spawn((
             NodeBundle {
@@ -409,21 +457,24 @@ fn setup_hud(commands: &mut Commands) {
             
             // Upgrade notification
             parent.spawn((
-                TextBundle::from_section(
-                    "⚡ UPGRADES AVAILABLE (U)",
-                    TextStyle {
-                        font_size: 16.0,
-                        color: Color::srgb(1.0, 0.8, 0.2),
+                TextBundle {
+                    text: Text::from_section(
+                        "⚡ UPGRADES AVAILABLE (U)",
+                        TextStyle {
+                            font_size: 16.0,
+                            color: Color::srgb(1.0, 0.8, 0.2),
+                            ..default()
+                        },
+                    ),
+                    style: Style {
+                        margin: UiRect::top(Val::Px(20.0)),
                         ..default()
                     },
-                )
-                .with_style(Style {
-                    margin: UiRect::top(Val::Px(20.0)),
+                    visibility: Visibility::Hidden,
                     ..default()
-                }),
+                },
                 UpgradeNotification,
                 UpgradeNotificationPulse { pulse_timer: 0.0 },
-                Visibility::Hidden,
             ));
         });
 }
@@ -541,6 +592,14 @@ pub fn check_upgrade_key(
 #[derive(Component)]
 pub struct UpgradeMenuRoot;
 
+/// Scrollable upgrade container marker (the outer wrapper that clips)
+#[derive(Component)]
+pub struct UpgradeScrollContainer;
+
+/// Scrollable upgrade content (the inner content that moves)
+#[derive(Component)]
+pub struct UpgradeScrollContent;
+
 /// Upgrade button marker
 #[derive(Component)]
 pub struct UpgradeButton {
@@ -616,17 +675,31 @@ pub fn setup_upgrade_menu(
                 ResourceDisplay,
             ));
             
-            // Scrollable container for upgrades
-            parent.spawn(NodeBundle {
-                style: Style {
-                    flex_direction: FlexDirection::Column,
-                    overflow: Overflow::clip_y(),
-                    max_height: Val::Vh(65.0),
-                    width: Val::Percent(100.0),
+            // Scrollable container wrapper (clips overflow)
+            parent.spawn((
+                NodeBundle {
+                    style: Style {
+                        overflow: Overflow::clip_y(),
+                        max_height: Val::Vh(65.0),
+                        width: Val::Percent(100.0),
+                        ..default()
+                    },
                     ..default()
                 },
-                ..default()
-            }).with_children(|scroll_parent| {
+                UpgradeScrollContainer,
+            )).with_children(|clip_parent| {
+                // Scrollable content (this actually moves)
+                clip_parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            flex_direction: FlexDirection::Column,
+                            width: Val::Percent(100.0),
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    UpgradeScrollContent,
+                )).with_children(|scroll_parent| {
             // Categories
             for category in [
                 UpgradeCategory::Hull,
@@ -746,7 +819,8 @@ pub fn setup_upgrade_menu(
                     upgrade_index += 1;
                 }
             }
-            }); // End scrollable container
+                }); // End scroll_parent (UpgradeScrollContent)
+            }); // End clip_parent (UpgradeScrollContainer)
             
             // Instructions (outside scroll area, always visible)
             parent.spawn(
@@ -773,6 +847,36 @@ pub fn cleanup_upgrade_menu(
 ) {
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Handle upgrade menu scrolling with mouse wheel or trackpad
+pub fn upgrade_menu_scroll_system(
+    mut scroll_events: EventReader<bevy::input::mouse::MouseWheel>,
+    mut scroll_query: Query<&mut Style, With<UpgradeScrollContent>>,
+) {
+    let mut scroll_amount = 0.0;
+    
+    for event in scroll_events.read() {
+        // Handle both pixel-based (trackpad) and line-based (mouse wheel) scrolling
+        scroll_amount += match event.unit {
+            bevy::input::mouse::MouseScrollUnit::Line => event.y * 50.0,
+            bevy::input::mouse::MouseScrollUnit::Pixel => event.y,
+        };
+    }
+    
+    if scroll_amount != 0.0 {
+        for mut style in scroll_query.iter_mut() {
+            // Get current top margin or default to 0
+            let current_top = match style.margin.top {
+                Val::Px(px) => px,
+                _ => 0.0,
+            };
+            
+            // Apply scroll (positive = scroll up, negative = scroll down)
+            let new_top = (current_top + scroll_amount).clamp(-2000.0, 0.0);
+            style.margin.top = Val::Px(new_top);
+        }
     }
 }
 
@@ -1418,36 +1522,154 @@ pub fn update_upgrade_notification_pulse(
     }
 }
 
-/// Update targeting reticule color based on enemy targeting
+/// Calculate intercept point for a moving target
+/// Returns the position where the target will be when the projectile arrives
+fn calculate_intercept_point(
+    shooter_pos: Vec3,
+    target_pos: Vec3,
+    target_velocity: Vec3,
+    projectile_speed: f32,
+) -> Option<Vec3> {
+    // Using iterative approach for intercept calculation
+    let max_iterations = 5;
+    let mut predicted_pos = target_pos;
+    
+    for _ in 0..max_iterations {
+        let to_predicted = predicted_pos - shooter_pos;
+        let distance = to_predicted.length();
+        
+        if distance < 0.1 {
+            return Some(predicted_pos);
+        }
+        
+        // Calculate time for projectile to reach predicted position
+        let time_to_hit = distance / projectile_speed;
+        
+        // Update predicted position based on target velocity
+        predicted_pos = target_pos + target_velocity * time_to_hit;
+    }
+    
+    Some(predicted_pos)
+}
+
+/// Update targeting reticule position and color based on where bullets will go
 pub fn update_targeting_reticule_system(
-    player_query: Query<&Transform, With<Player>>,
-    enemy_query: Query<&Transform, (With<crate::components::ai::Enemy>, Without<Player>)>,
-    mut circle_query: Query<&mut BorderColor, With<ReticuleCircle>>,
-    mut center_query: Query<&mut BackgroundColor, With<ReticuleCenter>>,
+    player_query: Query<(&Transform, &WeaponMount), With<Player>>,
+    enemy_query: Query<(&Transform, &crate::components::ship::Velocity), (With<crate::components::ai::Enemy>, Without<Player>)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<crate::components::camera::CameraController>>,
+    mut reticule_query: Query<&mut Style, (With<TargetingReticule>, Without<LeadIndicator>)>,
+    mut circle_query: Query<&mut BorderColor, (With<ReticuleCircle>, Without<Player>, Without<LeadIndicator>)>,
+    mut center_query: Query<&mut BackgroundColor, (With<ReticuleCenter>, Without<Player>)>,
+    mut lead_query: Query<(&mut Style, &mut Visibility, &mut BorderColor), (With<LeadIndicator>, Without<TargetingReticule>, Without<ReticuleCircle>)>,
 ) {
-    let Ok(player_transform) = player_query.get_single() else {
+    let Ok((player_transform, weapon_mount)) = player_query.get_single() else {
         return;
+    };
+    
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+    
+    // Get current weapon's projectile speed
+    let projectile_speed = if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
+        weapon.projectile_speed
+    } else {
+        150.0 // Default speed if no weapon
     };
     
     let forward = player_transform.forward();
     let player_pos = player_transform.translation;
     
-    // Check if any enemy is within crosshair cone (±5 degrees)
-    let target_cone_angle = 5.0_f32.to_radians();
+    // Find closest enemy in front of player
+    let target_cone_angle = 15.0_f32.to_radians(); // Wider cone for lead indicator
+    let mut closest_enemy: Option<(Vec3, Vec3, f32)> = None; // (position, velocity, distance)
+    let mut closest_dist = f32::MAX;
+    
+    for (enemy_transform, enemy_velocity) in enemy_query.iter() {
+        let to_enemy = enemy_transform.translation - player_pos;
+        let distance = to_enemy.length();
+        let direction = to_enemy.normalize();
+        let dot = forward.dot(direction);
+        
+        // Check if enemy is in front and within cone
+        if dot > target_cone_angle.cos() && distance < closest_dist && distance < 300.0 {
+            closest_dist = distance;
+            closest_enemy = Some((enemy_transform.translation, enemy_velocity.0, distance));
+        }
+    }
+    
+    // Calculate main reticule position
+    // Use raycast along forward direction to find aiming point
+    let aim_distance = closest_enemy.as_ref().map(|(_, _, d)| *d).unwrap_or(100.0);
+    let aim_point = player_pos + forward.as_vec3() * aim_distance;
+    
+    // Project 3D aim point to screen coordinates
+    if let Some(screen_pos) = camera.world_to_viewport(camera_transform, aim_point) {
+        // Position reticule at screen coordinates (centered on the aim point)
+        for mut style in reticule_query.iter_mut() {
+            style.left = Val::Px(screen_pos.x - 15.0); // Center the 30px reticule
+            style.top = Val::Px(screen_pos.y - 15.0);
+        }
+    }
+    
+    // Update lead indicator
+    if let Ok((mut lead_style, mut lead_visibility, mut lead_border)) = lead_query.get_single_mut() {
+        if let Some((target_pos, target_vel, distance)) = closest_enemy {
+            // Check if target is moving significantly
+            let target_speed = target_vel.length();
+            
+            if target_speed > 5.0 { // Only show lead indicator if target is moving
+                // Calculate intercept point
+                if let Some(intercept_point) = calculate_intercept_point(
+                    player_pos,
+                    target_pos,
+                    target_vel,
+                    projectile_speed,
+                ) {
+                    // Project intercept point to screen
+                    if let Some(lead_screen_pos) = camera.world_to_viewport(camera_transform, intercept_point) {
+                        lead_style.left = Val::Px(lead_screen_pos.x - 10.0); // Center the 20px indicator
+                        lead_style.top = Val::Px(lead_screen_pos.y - 10.0);
+                        *lead_visibility = Visibility::Visible;
+                        
+                        // Color based on accuracy - orange if good lead, yellow if needs adjustment
+                        let lead_offset = (intercept_point - target_pos).length();
+                        let color = if lead_offset > distance * 0.3 {
+                            Color::srgba(1.0, 1.0, 0.0, 0.8) // Yellow for large lead
+                        } else {
+                            Color::srgba(1.0, 0.5, 0.0, 0.8) // Orange for good lead
+                        };
+                        *lead_border = color.into();
+                    } else {
+                        *lead_visibility = Visibility::Hidden;
+                    }
+                } else {
+                    *lead_visibility = Visibility::Hidden;
+                }
+            } else {
+                *lead_visibility = Visibility::Hidden;
+            }
+        } else {
+            *lead_visibility = Visibility::Hidden;
+        }
+    }
+    
+    // Check if any enemy is within precise crosshair cone (±5 degrees)
+    let precise_cone_angle = 5.0_f32.to_radians();
     let mut enemy_in_crosshair = false;
     
-    for enemy_transform in enemy_query.iter() {
+    for (enemy_transform, _) in enemy_query.iter() {
         let to_enemy = (enemy_transform.translation - player_pos).normalize();
         let dot = forward.dot(to_enemy);
         
         // dot = cos(angle), so if angle < threshold, we're aiming at enemy
-        if dot > target_cone_angle.cos() {
+        if dot > precise_cone_angle.cos() {
             enemy_in_crosshair = true;
             break;
         }
     }
     
-    // Update colors based on targeting
+    // Update reticule colors based on targeting
     let (circle_color, dot_color) = if enemy_in_crosshair {
         (Color::srgb(1.0, 0.2, 0.2), Color::srgb(1.0, 0.2, 0.2)) // Red when targeting
     } else {

@@ -78,6 +78,65 @@ pub fn ai_target_acquisition_system(
     }
 }
 
+/// AI weapon selection system - chooses optimal weapon based on target's shield/hull status
+pub fn ai_weapon_selection_system(
+    mut ai_query: Query<(&AIController, &mut WeaponMount), Without<Player>>,
+    target_query: Query<(&Shield, &Health), With<Player>>,
+) {
+    for (ai, mut weapon_mount) in ai_query.iter_mut() {
+        // Only switch weapons if AI has multiple weapons
+        if weapon_mount.weapons.len() <= 1 {
+            continue;
+        }
+        
+        if let Some(target_entity) = ai.target {
+            if let Ok((shield, health)) = target_query.get(target_entity) {
+                let shield_percent = shield.current / shield.max;
+                let health_percent = health.current / health.max;
+                
+                // Tactical weapon switching based on weapon type rules:
+                // - Use shield-breaking weapons (Laser, IonCannon, BeamLaser) when shields > 25%
+                // - Use hull-damaging weapons (Autocannon, Railgun) when shields low
+                // - Use balanced/special weapons (Plasma, Missile) situationally
+                
+                let best_weapon_idx = if shield_percent > 0.25 {
+                    // Target has shields - prioritize anti-shield weapons
+                    weapon_mount.weapons.iter().enumerate()
+                        .max_by(|(_, a), (_, b)| {
+                            a.shield_damage_multiplier.partial_cmp(&b.shield_damage_multiplier).unwrap()
+                        })
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(0)
+                } else if health_percent < 0.5 {
+                    // Target low on health - use missiles for finishing blow if available
+                    weapon_mount.weapons.iter().enumerate()
+                        .find(|(_, w)| w.weapon_type == WeaponType::Missile)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or_else(|| {
+                            // Otherwise use best hull weapon
+                            weapon_mount.weapons.iter().enumerate()
+                                .max_by(|(_, a), (_, b)| {
+                                    a.hull_damage_multiplier.partial_cmp(&b.hull_damage_multiplier).unwrap()
+                                })
+                                .map(|(idx, _)| idx)
+                                .unwrap_or(0)
+                        })
+                } else {
+                    // Shields down, target healthy - prioritize anti-hull weapons
+                    weapon_mount.weapons.iter().enumerate()
+                        .max_by(|(_, a), (_, b)| {
+                            a.hull_damage_multiplier.partial_cmp(&b.hull_damage_multiplier).unwrap()
+                        })
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(0)
+                };
+                
+                weapon_mount.current_weapon = best_weapon_idx;
+            }
+        }
+    }
+}
+
 /// AI combat system - handles movement and firing
 pub fn ai_combat_system(
     time: Res<Time>,
@@ -286,6 +345,14 @@ pub fn ai_combat_system(
                                             ),
                                         };
                                         
+                                        // Apply weapon type-specific properties
+                                        let (homing_strength, area_damage, piercing) = match weapon.weapon_type {
+                                            WeaponType::Missile => (15.0, 8.0, false),      // Homing missiles with area damage
+                                            WeaponType::Railgun => (0.0, 0.0, true),        // Piercing rounds
+                                            WeaponType::FlakCannon => (0.0, 5.0, false),    // Area damage
+                                            _ => (0.0, 0.0, false),                         // Standard projectile
+                                        };
+                                        
                                         commands.spawn((
                                             PbrBundle {
                                                 mesh,
@@ -305,9 +372,9 @@ pub fn ai_combat_system(
                                                 weapon_type: weapon.weapon_type,
                                                 shield_damage_multiplier: weapon.shield_damage_multiplier,
                                                 hull_damage_multiplier: weapon.hull_damage_multiplier,
-                                                piercing: false,
-                                                area_damage: 0.0,
-                                                homing_strength: 0.0,
+                                                piercing,
+                                                area_damage,
+                                                homing_strength,
                                                 homing_target: None,
                                             },
                                             Velocity(projectile_velocity),

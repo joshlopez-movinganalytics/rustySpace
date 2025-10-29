@@ -1,3 +1,20 @@
-# Mold linker is not supported on macOS
-# [build]
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]
+# Faster linker configuration for macOS
+# This significantly speeds up linking time
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld"]
+
+# Use zld if installed (brew install michaeleisel/zld/zld)
+# Uncomment these lines if you have zld installed for even faster linking:
+# [target.x86_64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/bin/zld"]
+# 
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/zld"]
+
+[build]
+# Parallel compilation
+jobs = 8

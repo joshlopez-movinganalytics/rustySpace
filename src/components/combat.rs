@@ -110,7 +110,7 @@ impl Weapon {
         }
     }
 
-    /// Autocannon - Anti-Hull weapon (0.4x shield, 2.0x hull)
+    /// Autocannon - Anti-Hull weapon (0.2x shield, 2.0x hull)
     /// Alt-fire: Shotgun spread
     pub fn autocannon() -> Self {
         Self {
@@ -122,7 +122,7 @@ impl Weapon {
             cooldown_timer: 0.0,
             spread: 0.015,
             alt_fire_charge: 0.0,
-            shield_damage_multiplier: 0.4,  // 5.6 damage to shields
+            shield_damage_multiplier: 0.2,  // 2.8 damage to shields (50% less than before)
             hull_damage_multiplier: 2.0,     // 28 damage to hull
         }
     }

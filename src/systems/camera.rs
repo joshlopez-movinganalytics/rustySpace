@@ -23,8 +23,9 @@ pub fn camera_follow_system(
             let smoothness = controller.smoothness * time.delta_seconds();
             camera_transform.translation = camera_transform.translation.lerp(desired_pos, smoothness);
             
-            // Look at player
-            camera_transform.look_at(player_pos, Vec3::Y);
+            // Look at a point ahead of and above the player to position ship lower on screen
+            let look_offset = player_forward.as_vec3() * 10.0 + Vec3::Y * 5.0;
+            camera_transform.look_at(player_pos + look_offset, Vec3::Y);
         }
     }
 }

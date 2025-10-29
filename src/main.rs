@@ -42,6 +42,7 @@ fn main() {
         .add_systems(Update, (
             ai::ai_controller_system,
             ai::ai_target_acquisition_system,
+            ai::ai_weapon_selection_system,
             ai::ai_combat_system,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
@@ -58,6 +59,7 @@ fn main() {
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             systems::effects::update_explosions,
+            systems::effects::update_shield_effects,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             systems::visuals::update_starfield,
@@ -80,7 +82,11 @@ fn main() {
         ))
         .add_systems(OnExit(GameState::MainMenu), ui::cleanup_main_menu)
         .add_systems(Update, ui::main_menu_system.run_if(in_state(GameState::MainMenu)))
-        .add_systems(OnEnter(GameState::InGame), movement::manage_cursor_lock)
+        .add_systems(OnEnter(GameState::InGame), (
+            movement::manage_cursor_lock,
+            ui::setup_targeting_reticule,
+        ))
+        .add_systems(OnExit(GameState::InGame), ui::cleanup_targeting_reticule)
         .add_systems(OnEnter(GameState::Upgrade), (
             ui::setup_upgrade_menu,
             movement::release_cursor_lock,
@@ -89,7 +95,10 @@ fn main() {
             ui::cleanup_upgrade_menu,
             movement::manage_cursor_lock,
         ))
-        .add_systems(Update, ui::upgrade_menu_system.run_if(in_state(GameState::Upgrade)))
+        .add_systems(Update, (
+            ui::upgrade_menu_system,
+            ui::upgrade_menu_scroll_system,
+        ).run_if(in_state(GameState::Upgrade)))
         .add_systems(Update, ui::check_upgrade_key.run_if(in_state(GameState::InGame)))
         .add_systems(Update, ui::check_pause_key.run_if(in_state(GameState::InGame).or_else(in_state(GameState::Paused))))
         .add_systems(OnEnter(GameState::Paused), (

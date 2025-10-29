@@ -560,9 +560,32 @@ pub fn projectile_collision_system(
                 
                 // Hit shields first
                 if shield.current > 0.0 {
+                    let shield_before = shield.current;
                     shield.current -= shield_damage;
                     shield.time_since_last_hit = 0.0;
-                    if shield.current < 0.0 {
+                    
+                    // Spawn shield hit effect
+                    if direct_hit {
+                        crate::systems::effects::spawn_shield_hit_effect(
+                            &mut commands,
+                            &mut meshes,
+                            &mut materials,
+                            ship_transform.translation,
+                            proj_transform.translation,
+                        );
+                    }
+                    
+                    if shield.current <= 0.0 {
+                        // Shield broken! Spawn break effect
+                        if shield_before > 0.0 {
+                            crate::systems::effects::spawn_shield_break_effect(
+                                &mut commands,
+                                &mut meshes,
+                                &mut materials,
+                                ship_transform.translation,
+                            );
+                        }
+                        
                         // Overflow damage to hull (using hull multiplier)
                         health.current += shield.current * projectile.hull_damage_multiplier / projectile.shield_damage_multiplier;
                         shield.current = 0.0;

@@ -10,7 +10,7 @@ The weapon system has been completely redesigned with **strategic damage profile
 2. **Look at the console output** when you hit enemies - you'll see:
    ```
    [Combat] Laser hit: Shield dmg=30.0 (base=12.0x2.50), Hull dmg=3.6 (base=12.0x0.30)
-   [Combat] Autocannon hit: Shield dmg=5.6 (base=14.0x0.40), Hull dmg=28.0 (base=14.0x2.00)
+   [Combat] Autocannon hit: Shield dmg=2.8 (base=14.0x0.20), Hull dmg=28.0 (base=14.0x2.00)
    ```
 3. **Switch weapons** with 1, 2, 3 keys
 4. **Alt-fire** with Right Mouse Button
@@ -45,7 +45,7 @@ The weapon system has been completely redesigned with **strategic damage profile
 **Primary Fire:**
 - Damage: 14
 - Fire Rate: 8/sec (rapid fire!)
-- Shield Damage: **5.6** (0.4x multiplier)
+- Shield Damage: **2.8** (0.2x multiplier)
 - Hull Damage: **28.0** (2.0x multiplier)
 - Speed: 140 units/sec
 - Energy: 3 per shot
@@ -237,7 +237,7 @@ The weapon system has been completely redesigned with **strategic damage profile
 | Weapon | vs Shields | vs Hull | Best For |
 |--------|-----------|---------|----------|
 | Laser | 2.5x | 0.3x | Shields |
-| Autocannon | 0.4x | 2.0x | Hull |
+| Autocannon | 0.2x | 2.0x | Hull |
 | Plasma | 1.2x | 1.3x | Both |
 | Missile | 1.5x | 1.0x | Area |
 | Railgun | 0.6x | 2.5x | Hull |
@@ -262,7 +262,7 @@ The weapon system has been completely redesigned with **strategic damage profile
 
 ```
 [Combat] Laser hit: Shield dmg=30.0 (base=12.0x2.50), Hull dmg=3.6 (base=12.0x0.30)
-[Combat] Autocannon hit: Shield dmg=5.6 (base=14.0x0.40), Hull dmg=28.0 (base=14.0x2.00)
+[Combat] Autocannon hit: Shield dmg=2.8 (base=14.0x0.20), Hull dmg=28.0 (base=14.0x2.00)
 [Combat] Missile hit: Shield dmg=60.0 (base=40.0x1.50), Hull dmg=40.0 (base=40.0x1.00)
 [Combat] Missile acquired target, homing strength: 15.0
 ```
