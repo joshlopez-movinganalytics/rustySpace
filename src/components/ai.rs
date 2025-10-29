@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// AI behavior state
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,7 +23,7 @@ pub struct AIController {
 }
 
 /// Enemy ship type
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EnemyType {
     Fighter,
     Corvette,

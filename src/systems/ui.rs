@@ -3,7 +3,7 @@ use crate::components::ship::Player;
 use crate::components::combat::{Health, Shield, Energy, WeaponMount};
 use crate::components::resources::Inventory;
 use crate::components::upgrades::{PlayerUpgrades, UpgradeType, UpgradeCategory};
-use crate::resources::GameState;
+use crate::resources::{GameState, Galaxy};
 use crate::systems::save_load;
 
 /// HUD root marker
@@ -835,6 +835,17 @@ pub fn check_upgrade_key(
     }
 }
 
+/// Check for galaxy map key press
+pub fn check_galaxy_map_key(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyM) {
+        println!("[UI System] Opening galaxy map...");
+        next_state.set(GameState::GalaxyMap);
+    }
+}
+
 /// Upgrade menu marker
 #[derive(Component)]
 pub struct UpgradeMenuRoot;
@@ -1509,6 +1520,7 @@ pub fn pause_menu_system(
     player_query: Query<(&Transform, &Health, &Shield, &Energy), With<Player>>,
     inventory: Res<Inventory>,
     upgrades: Res<PlayerUpgrades>,
+    galaxy: Option<Res<Galaxy>>,
 ) {
     for (interaction, button_type, mut bg_color) in button_query.iter_mut() {
         match *interaction {
@@ -1520,7 +1532,7 @@ pub fn pause_menu_system(
                     }
                     PauseMenuButton::Save => {
                         println!("[UI System] Saving game...");
-                        match save_load::save_game(&player_query, &inventory, &upgrades) {
+                        match save_load::save_game(&player_query, &inventory, &upgrades, galaxy.as_deref()) {
                             Ok(_) => println!("[UI System] Game saved successfully!"),
                             Err(e) => println!("[UI System] Failed to save game: {}", e),
                         }

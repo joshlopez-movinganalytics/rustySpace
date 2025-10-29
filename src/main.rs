@@ -103,6 +103,7 @@ fn main() {
             ui::upgrade_menu_scroll_system,
         ).run_if(in_state(GameState::Upgrade)))
         .add_systems(Update, ui::check_upgrade_key.run_if(in_state(GameState::InGame)))
+        .add_systems(Update, ui::check_galaxy_map_key.run_if(in_state(GameState::InGame)))
         .add_systems(Update, ui::check_pause_key.run_if(in_state(GameState::InGame).or_else(in_state(GameState::Paused))))
         .add_systems(OnEnter(GameState::Paused), (
             ui::setup_pause_menu,
@@ -124,6 +125,28 @@ fn main() {
             spawning::handle_restart_game,
             spawning::handle_load_game,
         ))
+        .add_systems(OnEnter(GameState::GalaxyMap), (
+            galaxy_ui::setup_galaxy_map_ui,
+            movement::release_cursor_lock,
+        ))
+        .add_systems(OnExit(GameState::GalaxyMap), (
+            galaxy_ui::cleanup_galaxy_map_ui,
+            movement::manage_cursor_lock,
+        ))
+        .add_systems(Update, (
+            galaxy_ui::galaxy_map_camera_controls,
+            galaxy_ui::galaxy_map_close_system,
+        ).run_if(in_state(GameState::GalaxyMap)))
+        .add_systems(Update, (
+            travel::check_jump_gate_proximity,
+            travel::hyperspace_animation_system,
+            travel::handle_system_transition,
+            spawning::handle_respawn_system_content,
+            galaxy::spawn_system_content,
+            galaxy::update_planet_orbits,
+            galaxy::animate_jump_gate_rings,
+            galaxy::animate_jump_gate_glow,
+        ).run_if(in_state(GameState::InGame)))
         .run();
 }
 
@@ -231,5 +254,12 @@ fn setup_game(
 
     // Initialize game resources (reduced spawn time from 5s to 3s for more action)
     commands.insert_resource(resources::SpawnTimer(Timer::from_seconds(3.0, TimerMode::Repeating)));
+    
+    // Initialize galaxy
+    let galaxy = resources::Galaxy::new(rand::random());
+    commands.insert_resource(galaxy);
+    
+    // Trigger initial system content spawn
+    commands.insert_resource(systems::galaxy::SpawnSystemContentFlag);
 }
 

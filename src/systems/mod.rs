@@ -8,4 +8,7 @@ pub mod camera;
 pub mod effects;
 pub mod visuals;
 pub mod save_load;
+pub mod galaxy;
+pub mod travel;
+pub mod galaxy_ui;
 

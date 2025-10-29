@@ -20,11 +20,18 @@ pub fn loot_collection_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     player_query: Query<&Transform, With<Player>>,
     mut loot_query: Query<(Entity, &mut Transform, &Loot, &mut Velocity), Without<Player>>,
+    galaxy: Option<Res<crate::resources::Galaxy>>,
 ) {
     let collection_radius = 3.0; // Close range for actual collection
     let attraction_radius = 15.0; // Wider range for magnetic pull
     let attraction_strength = 25.0;
     let dt = time.delta_seconds();
+    
+    // Get resource multipliers from current system
+    let resource_multipliers = galaxy
+        .as_ref()
+        .and_then(|g| g.current_system())
+        .map(|s| &s.resource_multipliers);
     
     for player_transform in player_query.iter() {
         for (loot_entity, mut loot_transform, loot, mut velocity) in loot_query.iter_mut() {
@@ -44,7 +51,20 @@ pub fn loot_collection_system(
             
             // Collect when close enough
             if distance < collection_radius {
-                inventory.add_resource(loot.resource_type, loot.amount);
+                // Apply system resource multipliers
+                let multiplier = if let Some(multipliers) = resource_multipliers {
+                    match loot.resource_type {
+                        ResourceType::ScrapMetal => multipliers.scrap_metal,
+                        ResourceType::EnergyCores => multipliers.energy_cores,
+                        ResourceType::RareMinerals => multipliers.rare_minerals,
+                        ResourceType::TechComponents => multipliers.tech_components,
+                    }
+                } else {
+                    1.0
+                };
+                
+                let amount = (loot.amount as f32 * multiplier).round() as u32;
+                inventory.add_resource(loot.resource_type, amount);
                 
                 let resource_name = match loot.resource_type {
                     ResourceType::ScrapMetal => "Scrap Metal",

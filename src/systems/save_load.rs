@@ -6,6 +6,7 @@ use crate::components::ship::*;
 use crate::components::combat::*;
 use crate::components::resources::Inventory;
 use crate::components::upgrades::PlayerUpgrades;
+use crate::resources::Galaxy;
 
 /// Save data structure
 #[derive(Serialize, Deserialize, Clone)]
@@ -20,6 +21,8 @@ pub struct SaveData {
     pub max_energy: f32,
     pub inventory: Inventory,
     pub upgrades: PlayerUpgrades,
+    pub galaxy_seed: u64,
+    pub current_system_id: u32,
 }
 
 /// Serializable Vec3
@@ -77,8 +80,15 @@ pub fn save_game(
     player_query: &Query<(&Transform, &Health, &Shield, &Energy), With<Player>>,
     inventory: &Inventory,
     upgrades: &PlayerUpgrades,
+    galaxy: Option<&Galaxy>,
 ) -> Result<(), String> {
     if let Ok((transform, health, shield, energy)) = player_query.get_single() {
+        let (galaxy_seed, current_system_id) = if let Some(galaxy) = galaxy {
+            (galaxy.seed, galaxy.current_system_id)
+        } else {
+            (12345, 0) // Default values if no galaxy
+        };
+        
         let save_data = SaveData {
             player_position: transform.translation.into(),
             player_rotation: transform.rotation.into(),
@@ -90,6 +100,8 @@ pub fn save_game(
             max_energy: energy.max,
             inventory: inventory.clone(),
             upgrades: upgrades.clone(),
+            galaxy_seed,
+            current_system_id,
         };
         
         let json = serde_json::to_string_pretty(&save_data)

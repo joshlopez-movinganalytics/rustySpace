@@ -4,10 +4,11 @@ use crate::components::combat::*;
 use crate::components::ai::*;
 use crate::components::resources::{Inventory, Loot};
 use crate::components::upgrades::PlayerUpgrades;
-use crate::resources::SpawnTimer;
+use crate::resources::{SpawnTimer, Galaxy};
 use crate::utils::ship_builder;
 use crate::systems::ui::{RestartGameFlag, LoadGameFlag};
 use crate::systems::save_load;
+use crate::systems::travel::RespawnSystemContentFlag;
 
 /// Enemy spawner system
 pub fn enemy_spawner_system(
@@ -18,6 +19,7 @@ pub fn enemy_spawner_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Enemy>,
+    galaxy: Option<Res<Galaxy>>,
 ) {
     spawn_timer.0.tick(time.delta());
     
@@ -43,19 +45,40 @@ pub fn enemy_spawner_system(
         angle.sin() * distance,
     );
     
-    // Weighted random enemy type (more fighters and corvettes, fewer capital ships)
-    let roll = rand::random::<f32>();
-    let enemy_type = if roll < 0.4 {
-        EnemyType::Fighter
-    } else if roll < 0.7 {
-        EnemyType::Corvette
-    } else if roll < 0.9 {
-        EnemyType::Frigate
+    // Get difficulty scaling from current system
+    let (difficulty_scale, enemy_preferences) = if let Some(galaxy) = galaxy.as_ref() {
+        if let Some(system) = galaxy.current_system() {
+            let scale = 1.0 + (system.difficulty as f32 * 0.1);
+            (scale, Some(&system.enemy_preference))
+        } else {
+            (1.0, None)
+        }
     } else {
-        EnemyType::CapitalShip
+        (1.0, None)
     };
     
-    let (ship, ai, health, shield, weapon_mount, ship_type, color) = match enemy_type {
+    // Select enemy type based on system preferences
+    let enemy_type = if let Some(preferences) = enemy_preferences {
+        // Use weighted random based on preferences
+        let roll = rand::random::<f32>();
+        let total = preferences.len() as f32;
+        let index = (roll * total).floor() as usize;
+        preferences.get(index).copied().unwrap_or(EnemyType::Fighter)
+    } else {
+        // Fallback to default weighted random
+        let roll = rand::random::<f32>();
+        if roll < 0.4 {
+            EnemyType::Fighter
+        } else if roll < 0.7 {
+            EnemyType::Corvette
+        } else if roll < 0.9 {
+            EnemyType::Frigate
+        } else {
+            EnemyType::CapitalShip
+        }
+    };
+    
+    let (mut ship, ai, mut health, mut shield, weapon_mount, ship_type, color) = match enemy_type {
         EnemyType::Fighter => (
             Ship::fighter(),
             AIController::fighter(),
@@ -105,6 +128,13 @@ pub fn enemy_spawner_system(
             Color::srgb(0.5, 0.1, 0.2),
         ),
     };
+    
+    // Apply difficulty scaling
+    health.max *= difficulty_scale;
+    health.current *= difficulty_scale;
+    shield.max *= difficulty_scale;
+    shield.current *= difficulty_scale;
+    ship.max_speed *= 1.0 + (difficulty_scale - 1.0) * 0.5; // Scale speed less dramatically
     
     println!("[Spawning System] Spawning {:?} at position {:?}", enemy_type, spawn_pos);
     
@@ -161,6 +191,10 @@ pub fn handle_restart_game(
     
     // Remove the restart flag
     commands.remove_resource::<RestartGameFlag>();
+    
+    // Initialize/reset galaxy
+    let galaxy = Galaxy::new(rand::random());
+    commands.insert_resource(galaxy);
     
     // Despawn all enemies
     for entity in enemy_query.iter() {
@@ -248,6 +282,9 @@ pub fn handle_restart_game(
         current_weapon: 0,
     });
     
+    // Trigger system content spawn
+    commands.insert_resource(crate::systems::galaxy::SpawnSystemContentFlag);
+    
     println!("[Spawning System] Game restarted successfully");
 }
 
@@ -310,6 +347,11 @@ pub fn handle_load_game(
     // Restore upgrades
     *upgrades = save_data.upgrades.clone();
     
+    // Restore/create galaxy from save data
+    let mut galaxy = Galaxy::new(save_data.galaxy_seed);
+    galaxy.jump_to_system(save_data.current_system_id);
+    commands.insert_resource(galaxy);
+    
     // Spawn player ship with saved state
     let player_ship = commands.spawn((
         SpatialBundle {
@@ -369,6 +411,9 @@ pub fn handle_load_game(
         current_weapon: 0,
     });
     
+    // Trigger system content spawn
+    commands.insert_resource(crate::systems::galaxy::SpawnSystemContentFlag);
+    
     println!("[Spawning System] Game loaded successfully");
 }
 
@@ -404,6 +449,19 @@ pub fn cleanup_on_main_menu(
         for entity in loot_query.iter() {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+/// Handle respawning system content after a jump
+pub fn handle_respawn_system_content(
+    mut commands: Commands,
+    respawn_flag: Option<Res<RespawnSystemContentFlag>>,
+) {
+    if respawn_flag.is_some() {
+        println!("[Spawning System] Respawning system content after jump");
+        // Flag triggers galaxy system to spawn content
+        commands.remove_resource::<RespawnSystemContentFlag>();
+        commands.insert_resource(crate::systems::galaxy::SpawnSystemContentFlag);
     }
 }
 

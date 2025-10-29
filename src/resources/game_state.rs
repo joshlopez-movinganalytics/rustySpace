@@ -8,6 +8,7 @@ pub enum GameState {
     InGame,
     Paused,
     Upgrade,
+    GalaxyMap,
     GameOver,
 }
 
