@@ -40,7 +40,7 @@ pub enum WeaponType {
 }
 
 /// Individual weapon
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Weapon {
     pub weapon_type: WeaponType,
     pub damage: f32,
@@ -106,29 +106,41 @@ pub enum Faction {
     Neutral,
 }
 
-/// Autofire component - enables automatic targeting and firing
-#[derive(Component, Clone, Copy, Debug)]
-pub struct AutofireController {
+/// Auto-turret component - independent targeting and firing system
+#[derive(Component, Clone, Debug)]
+pub struct AutoTurret {
     pub enabled: bool,
     pub current_target: Option<Entity>,
+    pub current_rotation: Quat, // Turret's independent rotation
     pub max_lock_range: f32,
     pub max_fire_range: f32,
-    pub aim_assist_strength: f32, // How strongly to turn toward target (0.0 - 1.0)
-    pub fire_cone_angle: f32, // Angle in radians within which to fire
+    pub turn_rate: f32, // Turret rotation speed (rad/s)
+    pub fire_cone_angle: f32, // Angle within which to fire
+    pub weapons: Vec<Weapon>, // Turret's weapons
+    pub current_weapon: usize, // Current weapon index
+    pub firing_cooldown: f32, // Current cooldown timer
 }
 
-impl Default for AutofireController {
+impl Default for AutoTurret {
     fn default() -> Self {
         Self {
             enabled: false,
             current_target: None,
-            max_lock_range: 150.0,
-            max_fire_range: 120.0,
-            aim_assist_strength: 0.8, // Strong tracking - 80% of max turn rate
-            fire_cone_angle: 0.08, // ~4.6 degrees (tighter for accuracy)
+            current_rotation: Quat::IDENTITY,
+            max_lock_range: 250.0, // Increased from 150.0
+            max_fire_range: 200.0, // Increased from 120.0
+            turn_rate: 6.0, // Turrets turn faster than ships
+            fire_cone_angle: 0.1, // ~5.7 degrees
+            weapons: vec![Weapon::laser(), Weapon::autocannon(), Weapon::plasma()], // Multiple weapons
+            current_weapon: 0,
+            firing_cooldown: 0.0,
         }
     }
 }
+
+/// Marker for turret visual entity
+#[derive(Component)]
+pub struct TurretVisual;
 
 impl Weapon {
     /// Laser - Anti-Shield weapon (2.5x shield, 0.3x hull)

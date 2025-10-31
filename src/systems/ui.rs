@@ -304,7 +304,7 @@ pub fn cleanup_targeting_reticule(
 /// Update weapon status HUD system
 pub fn update_weapon_hud_system(
     mut commands: Commands,
-    player_query: Query<(&WeaponMount, &crate::components::combat::AutofireController), With<Player>>,
+    player_query: Query<(&WeaponMount, &crate::components::combat::AutoTurret), With<Player>>,
     mut weapon_name_query: Query<&mut Text, With<WeaponNameText>>,
     mut heat_bar_query: Query<Entity, With<HeatBar>>,
     mut ammo_text_query: Query<&mut Text, (With<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>, Without<AutofireStatusText>)>,
@@ -312,7 +312,7 @@ pub fn update_weapon_hud_system(
     mut reload_text_query: Query<&mut Text, (With<ReloadIndicator>, Without<AmmoText>, Without<WeaponNameText>, Without<AutofireStatusText>)>,
     mut autofire_text_query: Query<&mut Text, (With<AutofireStatusText>, Without<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>)>,
 ) {
-    if let Ok((weapon_mount, autofire)) = player_query.get_single() {
+    if let Ok((weapon_mount, turret)) = player_query.get_single() {
         if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
             // Update weapon name
             for mut text in weapon_name_query.iter_mut() {
@@ -389,14 +389,14 @@ pub fn update_weapon_hud_system(
             }
         }
         
-        // Update autofire status (outside weapon check since it's independent)
+        // Update turret status (outside weapon check since it's independent)
         for mut text in autofire_text_query.iter_mut() {
-            if autofire.enabled {
-                if autofire.current_target.is_some() {
-                    text.sections[0].value = "⟨⟨ AUTOFIRE: LOCKED ⟩⟩".to_string();
+            if turret.enabled {
+                if turret.current_target.is_some() {
+                    text.sections[0].value = "⟨⟨ AUTO-TURRET: LOCKED ⟩⟩".to_string();
                     text.sections[0].style.color = colors::NEON_CYAN;
                 } else {
-                    text.sections[0].value = "⟨⟨ AUTOFIRE: SEARCHING ⟩⟩".to_string();
+                    text.sections[0].value = "⟨⟨ AUTO-TURRET: SEARCHING ⟩⟩".to_string();
                     text.sections[0].style.color = colors::NEON_YELLOW;
                 }
             } else {
@@ -956,7 +956,7 @@ fn setup_hud(commands: &mut Commands) {
                     ReloadIndicator,
                 ));
                 
-                // Autofire status indicator - CYBERPUNK
+                // Turret status indicator - CYBERPUNK
                 parent.spawn((
                     TextBundle::from_section(
                         "",
@@ -966,7 +966,7 @@ fn setup_hud(commands: &mut Commands) {
                             ..default()
                         },
                     ),
-                    AutofireStatusText,
+                    AutofireStatusText, // Reusing component name for compatibility
                     PulseAnimation::new(1.0, colors::NEON_CYAN).with_range(0.8, 1.0),
                 ));
             });

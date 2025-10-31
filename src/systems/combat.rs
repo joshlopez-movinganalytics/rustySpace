@@ -4,37 +4,38 @@ use crate::components::combat::*;
 use crate::components::ai::Enemy;
 use crate::resources::GameState;
 
-/// Autofire toggle system - handles enabling/disabling autofire with K key
+/// Turret toggle system - handles enabling/disabling turret with K key
 pub fn autofire_toggle_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut AutofireController, With<Player>>,
+    mut query: Query<&mut AutoTurret, With<Player>>,
 ) {
+    // Toggle turret on/off with K
     if keyboard.just_pressed(KeyCode::KeyK) {
-        for mut autofire in query.iter_mut() {
-            autofire.enabled = !autofire.enabled;
-            if autofire.enabled {
-                println!("[Combat] Autofire ENABLED - Auto-aiming and firing at nearest enemy");
+        for mut turret in query.iter_mut() {
+            turret.enabled = !turret.enabled;
+            if turret.enabled {
+                println!("[Turret] AUTO-TURRET ENABLED - Smart weapon selection active");
             } else {
-                println!("[Combat] Autofire DISABLED - Manual control");
-                autofire.current_target = None;
+                println!("[Turret] AUTO-TURRET DISABLED");
+                turret.current_target = None;
             }
         }
     }
 }
 
-/// Autofire targeting system - finds and tracks nearest enemy
+/// Turret targeting system - finds and tracks nearest enemy
 pub fn autofire_targeting_system(
-    mut player_query: Query<(&Transform, &mut AutofireController), With<Player>>,
+    mut player_query: Query<(&Transform, &mut AutoTurret), With<Player>>,
     enemy_query: Query<(Entity, &Transform, &Health), (With<Enemy>, Without<Player>)>,
 ) {
-    for (player_transform, mut autofire) in player_query.iter_mut() {
-        if !autofire.enabled {
-            autofire.current_target = None;
+    for (player_transform, mut turret) in player_query.iter_mut() {
+        if !turret.enabled {
+            turret.current_target = None;
             continue;
         }
         
         // Find closest enemy within lock range
-        let mut closest_distance = autofire.max_lock_range;
+        let mut closest_distance = turret.max_lock_range;
         let mut closest_enemy = None;
         
         for (enemy_entity, enemy_transform, _health) in enemy_query.iter() {
@@ -46,61 +47,58 @@ pub fn autofire_targeting_system(
         }
         
         // Update target
-        if let Some(old_target) = autofire.current_target {
+        if let Some(old_target) = turret.current_target {
             // Check if old target still exists and is in range
             if let Ok((_, target_transform, _)) = enemy_query.get(old_target) {
                 let distance = player_transform.translation.distance(target_transform.translation);
-                if distance > autofire.max_lock_range {
-                    autofire.current_target = closest_enemy;
+                if distance > turret.max_lock_range {
+                    turret.current_target = closest_enemy;
                 } else {
                     // Keep tracking current target
-                    autofire.current_target = Some(old_target);
+                    turret.current_target = Some(old_target);
                 }
             } else {
                 // Old target destroyed, find new one
-                autofire.current_target = closest_enemy;
+                turret.current_target = closest_enemy;
             }
         } else {
-            autofire.current_target = closest_enemy;
+            turret.current_target = closest_enemy;
         }
     }
 }
 
-/// Autofire aiming system - actively tracks and aims at locked target with proper lead
+/// Turret rotation system - rotates turret independently to track targets
 pub fn autofire_aiming_system(
     time: Res<Time>,
-    mut player_query: Query<(
-        &AutofireController,
-        &Transform,
-        &Velocity,
-        &WeaponMount,
-        &mut AngularVelocity,
-        &Ship,
-    ), With<Player>>,
+    mut player_query: Query<(&Transform, &mut AutoTurret), With<Player>>,
     enemy_query: Query<(&Transform, &Velocity), (With<Enemy>, Without<Player>)>,
 ) {
-    let _dt = time.delta_seconds();
+    let dt = time.delta_seconds();
     
-    for (autofire, player_transform, player_velocity, weapon_mount, mut angular_vel, ship) in player_query.iter_mut() {
-        if !autofire.enabled || autofire.current_target.is_none() {
+    for (player_transform, mut turret) in player_query.iter_mut() {
+        if !turret.enabled || turret.current_target.is_none() {
             continue;
         }
         
-        let target_entity = autofire.current_target.unwrap();
+        let target_entity = turret.current_target.unwrap();
         if let Ok((target_transform, target_velocity)) = enemy_query.get(target_entity) {
-            // Get current weapon's projectile speed
-            let projectile_speed = if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
-                weapon.projectile_speed
-            } else {
-                150.0 // Fallback if no weapon
-            };
+            // Turret position (mounted on back of ship, elevated)
+            let turret_world_pos = player_transform.translation 
+                + player_transform.up().as_vec3() * 2.0  // 2 units above
+                - player_transform.forward().as_vec3() * 3.0; // 3 units behind
             
-            // Calculate relative position and velocity
-            let relative_pos = target_transform.translation - player_transform.translation;
+            // Get turret's current weapon projectile speed
+            let projectile_speed = turret.weapons.get(turret.current_weapon)
+                .map(|w| w.projectile_speed)
+                .unwrap_or(150.0); // Default speed if no weapon
+            
+            // Calculate relative position and velocity from turret position
+            let relative_pos = target_transform.translation - turret_world_pos;
             let distance = relative_pos.length();
             
             // Target velocity relative to player (since projectiles don't inherit momentum in this game)
             let relative_velocity = target_velocity.0;
+            let target_speed = relative_velocity.length();
             
             // Iterative lead calculation for more accuracy
             // Start with initial time estimate
@@ -109,129 +107,330 @@ pub fn autofire_aiming_system(
             // Refine the estimate (2 iterations is usually enough)
             for _ in 0..2 {
                 let predicted_pos = target_transform.translation + relative_velocity * time_to_impact;
-                let new_distance = (predicted_pos - player_transform.translation).length();
+                let new_distance = (predicted_pos - turret_world_pos).length();
                 time_to_impact = new_distance / projectile_speed;
             }
             
             // Final predicted intercept point
             let intercept_point = target_transform.translation + relative_velocity * time_to_impact;
+            let lead_distance = (intercept_point - target_transform.translation).length();
             
-            // Calculate direction to intercept point
-            let to_intercept = (intercept_point - player_transform.translation).normalize();
-            let forward = player_transform.forward().as_vec3();
+            // Debug: Print tracking info (throttled to avoid spam)
+            static mut DEBUG_TIMER: f32 = 0.0;
+            unsafe {
+                DEBUG_TIMER += dt;
+                if DEBUG_TIMER > 0.5 { // Print every 0.5 seconds
+                    println!("[Turret Track] Target pos: ({:.1}, {:.1}, {:.1}) | Vel: ({:.1}, {:.1}, {:.1}) speed: {:.1} | Dist: {:.1} | Lead: {:.1} units",
+                        target_transform.translation.x, target_transform.translation.y, target_transform.translation.z,
+                        relative_velocity.x, relative_velocity.y, relative_velocity.z, target_speed,
+                        distance, lead_distance
+                    );
+                    DEBUG_TIMER = 0.0;
+                }
+            }
             
-            // Calculate angle difference
-            let cross = forward.cross(to_intercept);
-            let dot = forward.dot(to_intercept).clamp(-1.0, 1.0);
+            // Calculate turret's current forward direction in world space
+            // Turret rotation is independent of ship rotation
+            let turret_forward = (turret.current_rotation * Vec3::Z).normalize();
+            let to_intercept = (intercept_point - turret_world_pos).normalize();
+            
+            // Calculate rotation needed
+            let cross = turret_forward.cross(to_intercept);
+            let dot = turret_forward.dot(to_intercept).clamp(-1.0, 1.0);
             let angle_to_target = dot.acos();
             
-            // Only apply tracking if not already facing target
-            if angle_to_target > 0.015 { // About 0.86 degrees tolerance (tighter)
-                // Use ship's turn rate as base, scaled by aim assist strength
-                let turn_direction = cross.y.signum();
+            // Debug: Print turret aiming info
+            unsafe {
+                if DEBUG_TIMER == 0.0 {
+                    println!("[Turret Aim] Turret fwd: ({:.2}, {:.2}, {:.2}) | To-intercept: ({:.2}, {:.2}, {:.2}) | Angle: {:.3}° | Status: {}",
+                        turret_forward.x, turret_forward.y, turret_forward.z,
+                        to_intercept.x, to_intercept.y, to_intercept.z,
+                        angle_to_target.to_degrees(),
+                        if angle_to_target <= 0.03 { "LOCKED" } else { "TRACKING" }
+                    );
+                }
+            }
+            
+            // Rotate turret toward intercept point
+            if angle_to_target > 0.03 && cross.length() > 0.001 {
+                // Calculate rotation for this frame
+                let rotation_axis = cross.normalize();
+                let max_rotation = turret.turn_rate * dt;
+                let rotation_amount = angle_to_target.min(max_rotation);
                 
-                // Proportional control: turn faster when further from target
-                // Use smoother curve for more natural tracking
-                let turn_speed_multiplier = (angle_to_target * 2.0).min(1.0);
-                
-                // Apply rotation toward intercept point
-                let base_turn_rate = ship.turn_rate * autofire.aim_assist_strength * 6.0;
-                let turn_amount = turn_direction * base_turn_rate * turn_speed_multiplier;
-                
-                // Set the angular velocity directly
-                angular_vel.0.y = turn_amount;
-            } else {
-                // Target is aligned, minimal correction only
-                angular_vel.0.y *= 0.2; // Heavy dampen for stability
+                // Apply rotation to turret (independent of ship!)
+                let rotation = Quat::from_axis_angle(rotation_axis, rotation_amount);
+                turret.current_rotation = rotation * turret.current_rotation;
+                turret.current_rotation = turret.current_rotation.normalize();
             }
         }
     }
 }
 
-/// Autofire firing system - automatically fires when target is in sights
+/// Update turret visual rotation system
+pub fn update_turret_visual_system(
+    player_query: Query<(&AutoTurret, &Transform), With<Player>>,
+    mut turret_visual_query: Query<&mut Transform, (With<TurretVisual>, Without<Player>)>,
+) {
+    for (turret, ship_transform) in player_query.iter() {
+        for mut turret_transform in turret_visual_query.iter_mut() {
+            // Convert turret's world-space rotation to local-space rotation
+            // Turret rotation is in world space, but as a child entity it needs local rotation
+            let ship_rotation_inverse = ship_transform.rotation.inverse();
+            turret_transform.rotation = ship_rotation_inverse * turret.current_rotation;
+        }
+    }
+}
+
+/// Intelligent weapon selection for turret based on target state
+/// Returns the index of the best weapon to use
+fn select_best_turret_weapon(weapons: &[Weapon], shield_percentage: f32, distance: f32) -> usize {
+    let mut best_idx = 0;
+    let mut best_score = f32::MIN;
+    
+    for (idx, weapon) in weapons.iter().enumerate() {
+        let mut score = 0.0;
+        
+        match weapon.weapon_type {
+            WeaponType::Laser => {
+                // Laser is best for high shields (anti-shield weapon)
+                // Effectiveness increases with shield percentage
+                score = shield_percentage * 100.0;
+                // Laser is also good at close-medium range
+                if distance < 150.0 {
+                    score += 20.0;
+                }
+            },
+            WeaponType::Autocannon => {
+                // Autocannon is best for low/no shields (anti-hull weapon)
+                // Effectiveness increases as shields decrease
+                score = (1.0 - shield_percentage) * 100.0;
+                // Autocannon is better at close range
+                if distance < 120.0 {
+                    score += 30.0;
+                }
+            },
+            WeaponType::Plasma => {
+                // Plasma is best at long range (can charge shots)
+                // Good balanced weapon for medium shields
+                if distance > 140.0 {
+                    score = 80.0; // Prefer plasma at range
+                    // Extra bonus for very long range
+                    if distance > 180.0 {
+                        score += 30.0;
+                    }
+                } else {
+                    // At closer range, plasma is decent if shields are medium
+                    if shield_percentage > 0.2 && shield_percentage < 0.7 {
+                        score = 40.0;
+                    } else {
+                        score = 10.0; // Low priority otherwise
+                    }
+                }
+            },
+            _ => {
+                // Other weapons get neutral score
+                score = 30.0;
+            }
+        }
+        
+        if score > best_score {
+            best_score = score;
+            best_idx = idx;
+        }
+    }
+    
+    best_idx
+}
+
+/// Turret firing system - fires from turret when target is in sights
 pub fn autofire_firing_system(
     mut commands: Commands,
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    autofire_query: Query<(&AutofireController, &Transform), With<Player>>,
-    enemy_query: Query<&Transform, (With<Enemy>, Without<Player>)>,
     mut player_query: Query<(
         Entity,
         &Transform,
         &Velocity,
-        &mut WeaponMount,
+        &mut AutoTurret,
         &mut Energy,
         &crate::components::ship_classes::ClassBonuses,
     ), With<Player>>,
+    enemy_query: Query<(&Transform, &Shield, &Health), (With<Enemy>, Without<Player>)>,
 ) {
     let dt = time.delta_seconds();
     
-    // First, check if autofire is enabled and has a target
-    let (autofire_enabled, target_entity, fire_cone_angle, max_fire_range) = {
-        if let Ok((autofire, _)) = autofire_query.get_single() {
-            if autofire.enabled && autofire.current_target.is_some() {
-                (true, autofire.current_target.unwrap(), autofire.fire_cone_angle, autofire.max_fire_range)
-            } else {
-                return; // No autofire or no target
-            }
-        } else {
-            return;
-        }
-    };
-    
-    if !autofire_enabled {
-        return;
-    }
-    
-    // Get target transform
-    let target_transform = if let Ok(transform) = enemy_query.get(target_entity) {
-        transform
-    } else {
-        return; // Target doesn't exist
-    };
-    
-    // Update weapon cooldowns and fire if possible
-    for (entity, transform, velocity, mut weapon_mount, mut energy, bonuses) in player_query.iter_mut() {
-        // Update cooldown timers
-        for weapon in weapon_mount.weapons.iter_mut() {
-            weapon.cooldown_timer = (weapon.cooldown_timer - dt).max(0.0);
+    for (owner_entity, ship_transform, _ship_velocity, mut turret, mut energy, bonuses) in player_query.iter_mut() {
+        if !turret.enabled || turret.current_target.is_none() {
+            continue;
         }
         
-        // Check if target is in range and in firing cone
-        let to_target = target_transform.translation - transform.translation;
+        // Update turret weapon cooldown
+        turret.firing_cooldown = (turret.firing_cooldown - dt).max(0.0);
+        
+        let target_entity = turret.current_target.unwrap();
+        let (target_transform, target_shield, target_health) = if let Ok(data) = enemy_query.get(target_entity) {
+            data
+        } else {
+            continue; // Target doesn't exist
+        };
+        
+        // Turret world position
+        let turret_world_pos = ship_transform.translation 
+            + ship_transform.up().as_vec3() * 2.0
+            - ship_transform.forward().as_vec3() * 3.0;
+        
+        // Check if target is in range
+        let to_target = target_transform.translation - turret_world_pos;
         let distance = to_target.length();
         
-        if distance > max_fire_range {
+        if distance > turret.max_fire_range {
             continue; // Out of range
         }
         
-        let forward = transform.forward().as_vec3();
+        // Turret's forward direction (independent of ship)
+        let turret_forward = (turret.current_rotation * Vec3::Z).normalize();
         let to_target_normalized = to_target.normalize();
-        let dot = forward.dot(to_target_normalized);
+        let dot = turret_forward.dot(to_target_normalized).clamp(-1.0, 1.0);
         let angle = dot.acos();
         
-        if angle > fire_cone_angle {
+        // Debug: Print firing check
+        static mut FIRE_DEBUG_TIMER: f32 = 0.0;
+        unsafe {
+            FIRE_DEBUG_TIMER += dt;
+            if FIRE_DEBUG_TIMER > 1.0 {
+                println!("[Turret Fire] Distance: {:.1}/{:.1} | Angle: {:.3}°/{:.3}° | In cone: {}",
+                    distance, turret.max_fire_range,
+                    angle.to_degrees(), turret.fire_cone_angle.to_degrees(),
+                    if angle <= turret.fire_cone_angle { "YES" } else { "NO" }
+                );
+                FIRE_DEBUG_TIMER = 0.0;
+            }
+        }
+        
+        if angle > turret.fire_cone_angle {
             continue; // Not in firing cone
         }
         
-        // Fire current weapon
-        let current_weapon_idx = weapon_mount.current_weapon;
-        if let Some(weapon) = weapon_mount.weapons.get_mut(current_weapon_idx) {
-            let can_fire = weapon.cooldown_timer <= 0.0 
+        // Smart weapon selection based on target state and distance
+        let shield_percentage = target_shield.current / target_shield.max;
+        let best_weapon_idx = select_best_turret_weapon(&turret.weapons, shield_percentage, distance);
+        
+        // Only switch weapons if we found a better one and it's ready to fire
+        if best_weapon_idx != turret.current_weapon {
+            // Check if the new weapon is usable (without holding a borrow)
+            let can_use = if let Some(weapon) = turret.weapons.get(best_weapon_idx) {
+                !weapon.is_reloading
+                    && (weapon.max_heat == 0.0 || weapon.heat < weapon.max_heat)
+                    && (weapon.max_ammo == 0 || weapon.current_ammo > 0)
+                    && energy.current >= weapon.energy_cost
+            } else {
+                false
+            };
+            
+            if can_use {
+                let weapon_type = turret.weapons[best_weapon_idx].weapon_type;
+                turret.current_weapon = best_weapon_idx;
+                println!("[Turret AI] Switched to {:?} - Shields: {:.0}% | Distance: {:.1}",
+                    weapon_type, shield_percentage * 100.0, distance);
+            }
+        }
+        
+        // Extract values we need before mutable borrow
+        let current_weapon_idx = turret.current_weapon;
+        let firing_cooldown = turret.firing_cooldown;
+        let turret_rotation = turret.current_rotation;
+        
+        if let Some(weapon) = turret.weapons.get_mut(current_weapon_idx) {
+            // Check if turret can fire
+            let can_fire = firing_cooldown <= 0.0
                 && energy.current >= weapon.energy_cost
                 && !weapon.is_reloading
                 && (weapon.max_heat == 0.0 || weapon.heat < weapon.max_heat)
                 && (weapon.max_ammo == 0 || weapon.current_ammo > 0);
             
+            // Debug: Why can't fire?
+            if !can_fire {
+                static mut CANT_FIRE_TIMER: f32 = 0.0;
+                unsafe {
+                    CANT_FIRE_TIMER += dt;
+                    if CANT_FIRE_TIMER > 2.0 {
+                        println!("[Turret Fire] CAN'T FIRE - Cooldown: {:.2} | Energy: {:.1}/{:.1} | Heat: {:.1}/{:.1} | Ammo: {}/{} | Reloading: {}",
+                            firing_cooldown,
+                            energy.current, weapon.energy_cost,
+                            weapon.heat, weapon.max_heat,
+                            weapon.current_ammo, weapon.max_ammo,
+                            weapon.is_reloading
+                        );
+                        CANT_FIRE_TIMER = 0.0;
+                    }
+                }
+            }
+            
             if can_fire {
-                fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, bonuses, false);
-                weapon.cooldown_timer = (1.0 / weapon.fire_rate) / bonuses.fire_rate_multiplier;
+                println!("[Turret Fire] 🎯 TURRET FIRING | Weapon: {:?} | Speed: {:.0} | Turret pos: ({:.1}, {:.1}, {:.1})",
+                    weapon.weapon_type,
+                    weapon.projectile_speed,
+                    turret_world_pos.x, turret_world_pos.y, turret_world_pos.z
+                );
+                
+                let fire_rate = weapon.fire_rate; // Store before calling fire_turret_weapon
+                
+                // Fire from turret position with turret's rotation
+                fire_turret_weapon(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    owner_entity,
+                    turret_world_pos,
+                    turret_rotation,
+                    weapon,
+                    &mut energy,
+                    bonuses,
+                );
+                
+                // Drop the mutable borrow before setting firing_cooldown
+                drop(weapon);
+                turret.firing_cooldown = 1.0 / fire_rate;
             } else if weapon.max_ammo > 0 && weapon.current_ammo == 0 && !weapon.is_reloading {
                 // Auto-reload
                 if weapon.reserve_ammo > 0 {
                     weapon.is_reloading = true;
                     weapon.reload_timer = 0.0;
+                }
+            }
+        }
+    }
+}
+
+/// Turret weapon state management system (heat dissipation for turret)
+pub fn turret_weapon_state_system(
+    time: Res<Time>,
+    mut query: Query<&mut AutoTurret, With<Player>>,
+) {
+    let dt = time.delta_seconds();
+    
+    for mut turret in query.iter_mut() {
+        // Update all turret weapons
+        for weapon in turret.weapons.iter_mut() {
+            // Heat dissipation for turret weapon
+            if weapon.max_heat > 0.0 && weapon.heat > 0.0 {
+                weapon.heat = (weapon.heat - weapon.cooling_rate * dt).max(0.0);
+            }
+            
+            // Handle reloading for turret weapon
+            if weapon.is_reloading {
+                weapon.reload_timer += dt;
+                if weapon.reload_timer >= weapon.reload_time {
+                    // Reload complete
+                    let ammo_needed = weapon.max_ammo - weapon.current_ammo;
+                    let ammo_to_load = ammo_needed.min(weapon.reserve_ammo);
+                    weapon.current_ammo += ammo_to_load;
+                    weapon.reserve_ammo -= ammo_to_load;
+                    weapon.is_reloading = false;
+                    weapon.reload_timer = 0.0;
+                    println!("[Turret] Reload complete! Ammo: {}/{}", weapon.current_ammo, weapon.reserve_ammo);
                 }
             }
         }
@@ -456,6 +655,15 @@ fn fire_weapon(
     // Projectiles do NOT inherit momentum - they travel at fixed speed relative to world
     let projectile_velocity = projectile_direction * weapon.projectile_speed;
     
+    // Debug: Log projectile spawn
+    println!("[Projectile Spawn] Type: {:?} | Pos: ({:.1}, {:.1}, {:.1}) | Dir: ({:.2}, {:.2}, {:.2}) | Vel: ({:.1}, {:.1}, {:.1}) | Speed: {:.0}",
+        weapon.weapon_type,
+        projectile_pos.x, projectile_pos.y, projectile_pos.z,
+        projectile_direction.x, projectile_direction.y, projectile_direction.z,
+        projectile_velocity.x, projectile_velocity.y, projectile_velocity.z,
+        weapon.projectile_speed
+    );
+    
     // Calculate final damage first (needed for laser color)
     let base_damage = weapon.damage;
     let mut final_damage = base_damage * bonuses.damage_multiplier;
@@ -485,11 +693,11 @@ fn fire_weapon(
         _ => (0.0, 0.0, false),                         // No special effects
     };
     
-    // Calculate rotation based on projectile direction instead of ship rotation
-    // This ensures lasers always face the direction they were shot in
-    let projectile_rotation = if projectile_direction.length() > 0.1 {
-        Transform::from_translation(projectile_pos)
-            .looking_to(projectile_direction, Vec3::Y)
+    // Calculate rotation based on projectile velocity
+    // Capsules are aligned along Y-axis, so rotate from Y to velocity direction
+    let projectile_rotation = if projectile_velocity.length() > 0.1 {
+        let rotation = Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize());
+        Transform::from_translation(projectile_pos).with_rotation(rotation)
     } else {
         Transform::from_translation(projectile_pos)
             .with_rotation(transform.rotation)
@@ -563,10 +771,11 @@ fn fire_weapon_spread(
     
     let (mesh, color) = get_weapon_visual(weapon.weapon_type, meshes);
     
-    // Calculate rotation based on projectile direction
-    let projectile_rotation = if projectile_direction.length() > 0.1 {
-        Transform::from_translation(projectile_pos)
-            .looking_to(projectile_direction, Vec3::Y)
+    // Calculate rotation based on projectile velocity
+    // Capsules are aligned along Y-axis, so rotate from Y to velocity direction
+    let projectile_rotation = if projectile_velocity.length() > 0.1 {
+        let rotation = Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize());
+        Transform::from_translation(projectile_pos).with_rotation(rotation)
     } else {
         Transform::from_translation(projectile_pos)
             .with_rotation(transform.rotation)
@@ -624,6 +833,13 @@ fn fire_missile_swarm(
         
         let (mesh, color) = get_weapon_visual(WeaponType::Missile, meshes);
         
+        // Calculate rotation for missile
+        let rotation = if projectile_velocity.length() > 0.1 {
+            Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize())
+        } else {
+            Quat::IDENTITY
+        };
+        
         commands.spawn((
             PbrBundle {
                 mesh,
@@ -632,8 +848,7 @@ fn fire_missile_swarm(
                     emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                     ..default()
                 }),
-                transform: Transform::from_translation(projectile_pos)
-                    .looking_to(projectile_direction, Vec3::Y),
+                transform: Transform::from_translation(projectile_pos).with_rotation(rotation),
                 ..default()
             },
             Projectile {
@@ -674,6 +889,13 @@ fn fire_piercing_railgun(
     
     let (mesh, color) = get_weapon_visual(WeaponType::Railgun, meshes);
     
+    // Calculate rotation for railgun
+    let rotation = if projectile_velocity.length() > 0.1 {
+        Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize())
+    } else {
+        Quat::IDENTITY
+    };
+    
     commands.spawn((
         PbrBundle {
             mesh,
@@ -682,8 +904,7 @@ fn fire_piercing_railgun(
                 emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                 ..default()
             }),
-            transform: Transform::from_translation(projectile_pos)
-                .looking_to(projectile_direction, Vec3::Y),
+            transform: Transform::from_translation(projectile_pos).with_rotation(rotation),
             ..default()
         },
         Projectile {
@@ -726,6 +947,13 @@ fn fire_charged_plasma(
     let mesh = meshes.add(Sphere::new(size));
     let color = Color::srgb(0.2 + charge * 0.3, 1.0, 0.2);
     
+    // Spheres don't need rotation, but set it anyway for consistency
+    let rotation = if projectile_velocity.length() > 0.1 {
+        Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize())
+    } else {
+        Quat::IDENTITY
+    };
+    
     commands.spawn((
         PbrBundle {
             mesh,
@@ -734,8 +962,7 @@ fn fire_charged_plasma(
                 emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                 ..default()
             }),
-            transform: Transform::from_translation(projectile_pos)
-                .looking_to(projectile_direction, Vec3::Y),
+            transform: Transform::from_translation(projectile_pos).with_rotation(rotation),
             ..default()
         },
         Projectile {
@@ -748,6 +975,124 @@ fn fire_charged_plasma(
             piercing: false,
             area_damage: charge * 3.0,  // Charged shots have area damage
             homing_strength: 0.0,
+            homing_target: None,
+            initial_direction: projectile_direction,
+        },
+        Velocity(projectile_velocity),
+        Faction::Player,
+    ));
+}
+
+/// Fire weapon from turret with independent rotation
+fn fire_turret_weapon(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    owner: Entity,
+    turret_pos: Vec3,
+    turret_rotation: Quat,
+    weapon: &mut Weapon,
+    energy: &mut Energy,
+    bonuses: &crate::components::ship_classes::ClassBonuses,
+) {
+    // Consume energy
+    energy.current -= weapon.energy_cost;
+    
+    // Consume heat
+    if weapon.max_heat > 0.0 {
+        weapon.heat += weapon.heat_per_shot;
+        if weapon.heat >= weapon.max_heat {
+            println!("[Turret] Weapon overheated! Cooling down...");
+        }
+    }
+    
+    // Consume ammo
+    if weapon.max_ammo > 0 {
+        weapon.current_ammo = weapon.current_ammo.saturating_sub(1);
+    }
+    
+    // Turret shoots in its own forward direction (Z-axis after rotation)
+    let turret_forward = (turret_rotation * Vec3::Z).normalize();
+    let projectile_pos = turret_pos + turret_forward * 1.5; // Spawn slightly in front of turret
+    
+    // Add spread
+    let spread_x = (rand::random::<f32>() - 0.5) * weapon.spread;
+    let spread_y = (rand::random::<f32>() - 0.5) * weapon.spread;
+    let spread_rotation = Quat::from_euler(EulerRot::XYZ, spread_y, spread_x, 0.0);
+    let projectile_direction = (spread_rotation * turret_forward).normalize();
+    
+    // Projectiles travel at fixed speed (don't inherit ship momentum)
+    let projectile_velocity = projectile_direction * weapon.projectile_speed;
+    
+    // Calculate damage
+    let base_damage = weapon.damage;
+    let mut final_damage = base_damage * bonuses.damage_multiplier;
+    let is_critical = rand::random::<f32>() < bonuses.critical_chance;
+    if is_critical {
+        final_damage *= bonuses.critical_multiplier;
+    }
+    
+    // Get weapon visual
+    let (mesh, base_color) = get_weapon_visual(weapon.weapon_type, meshes);
+    let color = if weapon.weapon_type == WeaponType::Laser {
+        calculate_laser_color(base_damage, final_damage, false)
+    } else {
+        base_color
+    };
+    
+    // Weapon-specific properties
+    let (homing_strength, area_damage, piercing) = match weapon.weapon_type {
+        WeaponType::Missile => (15.0, 8.0, false),
+        WeaponType::FlakCannon => (0.0, 5.0, false),
+        WeaponType::Railgun => (0.0, 0.0, true),
+        _ => (0.0, 0.0, false),
+    };
+    
+    // Calculate rotation - capsules are aligned along Y-axis
+    let projectile_rotation = if projectile_velocity.length() > 0.1 {
+        let rotation = Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize());
+        Transform::from_translation(projectile_pos).with_rotation(rotation)
+    } else {
+        Transform::from_translation(projectile_pos)
+            .with_rotation(turret_rotation)
+    };
+    
+    // Emissive for bloom
+    let emissive_intensity = if weapon.weapon_type == WeaponType::Laser {
+        LinearRgba::from(color) * 8.0
+    } else {
+        LinearRgba::from(color) * 4.0
+    };
+    
+    println!("[Projectile Spawn] Type: {:?} | Pos: ({:.1}, {:.1}, {:.1}) | Dir: ({:.2}, {:.2}, {:.2}) | Vel: ({:.1}, {:.1}, {:.1}) | Speed: {:.0}",
+        weapon.weapon_type,
+        projectile_pos.x, projectile_pos.y, projectile_pos.z,
+        projectile_direction.x, projectile_direction.y, projectile_direction.z,
+        projectile_velocity.x, projectile_velocity.y, projectile_velocity.z,
+        weapon.projectile_speed
+    );
+    
+    commands.spawn((
+        PbrBundle {
+            mesh,
+            material: materials.add(StandardMaterial {
+                base_color: color,
+                emissive: emissive_intensity,
+                ..default()
+            }),
+            transform: projectile_rotation,
+            ..default()
+        },
+        Projectile {
+            damage: final_damage,
+            lifetime: 5.0,
+            owner,
+            weapon_type: weapon.weapon_type,
+            shield_damage_multiplier: weapon.shield_damage_multiplier,
+            hull_damage_multiplier: weapon.hull_damage_multiplier,
+            piercing,
+            area_damage,
+            homing_strength,
             homing_target: None,
             initial_direction: projectile_direction,
         },
@@ -835,13 +1180,13 @@ pub fn projectile_movement_system(
     for (velocity, mut transform, projectile) in query.iter_mut() {
         transform.translation += velocity.0 * dt;
         
-        // Orient projectile in its initial firing direction (not velocity, which includes ship movement)
-        // This ensures lasers always face the direction they were shot in
-        if projectile.initial_direction.length() > 0.1 {
-            transform.look_to(projectile.initial_direction, Vec3::Y);
-        } else if velocity.0.length() > 0.1 {
-            // Fallback: use velocity direction if initial_direction is invalid
-            transform.look_to(velocity.0.normalize(), Vec3::Y);
+        // Orient projectile in its velocity direction
+        // Capsules are aligned along Y-axis by default, so we align them with velocity
+        if velocity.0.length() > 0.1 {
+            let direction = velocity.0.normalize();
+            // look_to makes -Z point in direction, but capsules are along Y-axis
+            // So we need to use looking_to with a rotation that aligns Y with the direction
+            transform.rotation = Quat::from_rotation_arc(Vec3::Y, direction);
         }
     }
 }
@@ -923,13 +1268,20 @@ pub fn homing_projectile_system(
 pub fn projectile_lifetime_system(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(Entity, &mut Projectile)>,
+    mut query: Query<(Entity, &mut Projectile, &Transform, &Faction)>,
 ) {
     let dt = time.delta_seconds();
     
-    for (entity, mut projectile) in query.iter_mut() {
+    for (entity, mut projectile, transform, faction) in query.iter_mut() {
         projectile.lifetime -= dt;
         if projectile.lifetime <= 0.0 {
+            // Debug: Log projectile expiration (miss) for player shots only
+            if *faction == Faction::Player {
+                println!("[MISS ✗] {:?} expired | Final pos: ({:.1}, {:.1}, {:.1})",
+                    projectile.weapon_type,
+                    transform.translation.x, transform.translation.y, transform.translation.z
+                );
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -968,10 +1320,12 @@ pub fn projectile_collision_system(
                 
                 // Debug logging (only for player projectiles hitting enemies)
                 if *proj_faction == Faction::Player && direct_hit {
-                    println!("[Combat] {:?} hit: Shield dmg={:.1} (base={:.1}x{:.2}), Hull dmg={:.1} (base={:.1}x{:.2})", 
-                        projectile.weapon_type, 
-                        shield_damage, projectile.damage, projectile.shield_damage_multiplier,
-                        hull_damage, projectile.damage, projectile.hull_damage_multiplier
+                    println!("[HIT ✓] {:?} HIT at distance {:.2} | Projectile pos: ({:.1}, {:.1}, {:.1}) | Target pos: ({:.1}, {:.1}, {:.1}) | Shield dmg={:.1}, Hull dmg={:.1}", 
+                        projectile.weapon_type,
+                        distance,
+                        proj_transform.translation.x, proj_transform.translation.y, proj_transform.translation.z,
+                        ship_transform.translation.x, ship_transform.translation.y, ship_transform.translation.z,
+                        shield_damage, hull_damage
                     );
                 }
                 

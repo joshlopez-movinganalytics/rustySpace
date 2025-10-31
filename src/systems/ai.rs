@@ -367,10 +367,11 @@ pub fn ai_combat_system(
                                             base_color
                                         };
                                         
-                                        // Calculate rotation based on projectile direction instead of ship rotation
-                                        let projectile_rotation = if projectile_direction.length() > 0.1 {
-                                            Transform::from_translation(projectile_pos)
-                                                .looking_to(projectile_direction, Vec3::Y)
+                                        // Calculate rotation based on projectile velocity direction
+                                        // Capsules are aligned along Y-axis, so rotate from Y to velocity direction
+                                        let projectile_rotation = if projectile_velocity.length() > 0.1 {
+                                            let rotation = Quat::from_rotation_arc(Vec3::Y, projectile_velocity.normalize());
+                                            Transform::from_translation(projectile_pos).with_rotation(rotation)
                                         } else {
                                             Transform::from_translation(projectile_pos)
                                                 .with_rotation(transform.rotation)

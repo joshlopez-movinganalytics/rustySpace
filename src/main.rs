@@ -39,7 +39,9 @@ fn main() {
             combat::autofire_toggle_system,
             combat::autofire_targeting_system,
             combat::autofire_aiming_system,
+            combat::update_turret_visual_system,
             combat::autofire_firing_system,
+            combat::turret_weapon_state_system,
             combat::weapon_state_system,
             combat::weapon_firing_system,
             combat::projectile_movement_system,
@@ -326,7 +328,7 @@ fn setup_game(
         components::abilities::AbilityController::new(),
         components::ship_classes::ShipVisualConfig::default(),
         components::ship_classes::ClassBonuses::new(),
-        components::combat::AutofireController::default(),
+        components::combat::AutoTurret::default(),
     )).id();
 
     // Build modular ship visuals
@@ -338,6 +340,44 @@ fn setup_game(
         player_ship,
         Color::srgb(0.2, 0.5, 0.8),
     );
+    
+    // Spawn turret visual as child entity (mounted on back of ship)
+    let turret_visual = commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Sphere::new(0.8)), // Spherical turret base
+            material: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.3, 0.6, 0.9),
+                metallic: 0.8,
+                perceptual_roughness: 0.3,
+                emissive: LinearRgba::from(Color::srgb(0.1, 0.3, 0.6)) * 2.0,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0.0, 2.0, -3.0), // Behind and above ship center
+            ..default()
+        },
+        components::combat::TurretVisual,
+    )).id();
+    
+    // Add turret barrel as child of turret base
+    commands.entity(turret_visual).with_children(|parent| {
+        parent.spawn(PbrBundle {
+            mesh: meshes.add(Capsule3d::new(0.15, 1.2)),
+            material: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.4, 0.7, 1.0),
+                metallic: 0.9,
+                perceptual_roughness: 0.2,
+                emissive: LinearRgba::from(Color::srgb(0.2, 0.4, 0.8)) * 3.0,
+                ..default()
+            }),
+            // Barrel extends along Z-axis (which is the turret's forward direction)
+            transform: Transform::from_xyz(0.0, 0.0, 1.0)
+                .with_rotation(Quat::IDENTITY),
+            ..default()
+        });
+    });
+    
+    // Attach turret to ship
+    commands.entity(player_ship).add_child(turret_visual);
 
     // Add weapon mounts to player - starting with Laser, Autocannon, and Plasma
     commands.entity(player_ship).insert(components::combat::WeaponMount {
