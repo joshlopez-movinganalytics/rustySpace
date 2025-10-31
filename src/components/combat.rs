@@ -87,6 +87,7 @@ pub struct Projectile {
     pub area_damage: f32, // Radius for area of effect damage
     pub homing_strength: f32, // 0.0 = no homing, higher = stronger homing
     pub homing_target: Option<Entity>,
+    pub initial_direction: Vec3, // Direction the projectile was fired in (for rotation)
 }
 
 /// Damage type for resistances
@@ -120,7 +121,7 @@ impl Weapon {
             spread: 0.008,
             alt_fire_charge: 0.0,
             shield_damage_multiplier: 2.5,  // 30 damage to shields
-            hull_damage_multiplier: 0.3,     // 3.6 damage to hull
+            hull_damage_multiplier: 0.1,     // 3.6 damage to hull
             
             // Heat mechanics
             heat: 0.0,

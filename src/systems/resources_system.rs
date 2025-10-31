@@ -22,9 +22,8 @@ pub fn loot_collection_system(
     mut loot_query: Query<(Entity, &mut Transform, &Loot, &mut Velocity), Without<Player>>,
     galaxy: Option<Res<crate::resources::Galaxy>>,
 ) {
-    let collection_radius = 3.0; // Close range for actual collection
-    let attraction_radius = 15.0; // Wider range for magnetic pull
-    let attraction_strength = 25.0;
+    let collection_radius = 5.0; // Close range for actual collection
+    let attraction_strength = 100000.0; // Increased strength for infinite range
     let dt = time.delta_seconds();
     
     // Get resource multipliers from current system
@@ -38,10 +37,12 @@ pub fn loot_collection_system(
             let to_player = player_transform.translation - loot_transform.translation;
             let distance = to_player.length();
             
-            // Magnetic pull when within attraction radius
-            if distance < attraction_radius && distance > collection_radius {
+            // Infinite range magnetic pull - faster when closer
+            if distance > collection_radius {
                 let pull_direction = to_player.normalize();
-                let pull_force = attraction_strength * (1.0 - distance / attraction_radius);
+                // Inverse distance formula: closer items move faster, further items move slowser
+                // Using inverse square law for stronger effect closer to player
+                let pull_force = attraction_strength / (distance * distance * 0.1 + 1.0);
                 velocity.0 += pull_direction * pull_force * dt;
                 
                 // Apply velocity with damping

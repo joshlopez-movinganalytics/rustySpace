@@ -11,4 +11,10 @@ pub mod save_load;
 pub mod galaxy;
 pub mod travel;
 pub mod galaxy_ui;
+pub mod progression;
+pub mod abilities;
+pub mod ship_visuals;
+pub mod skill_tree_ui;
+pub mod stat_visualization;
+pub mod upgrade_effects;
 

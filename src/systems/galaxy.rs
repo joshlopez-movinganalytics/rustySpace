@@ -80,11 +80,6 @@ fn spawn_planet(
             planet_data.color[1],
             planet_data.color[2],
         ),
-        emissive: Color::srgb(
-            planet_data.color[0] * 0.1,
-            planet_data.color[1] * 0.1,
-            planet_data.color[2] * 0.1,
-        ).into(),
         ..default()
     });
     

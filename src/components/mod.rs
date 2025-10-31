@@ -6,6 +6,8 @@ pub mod camera;
 pub mod upgrades;
 pub mod galaxy;
 pub mod travel;
+pub mod ship_classes;
+pub mod abilities;
 
 pub use ship::*;
 pub use combat::*;
@@ -15,4 +17,6 @@ pub use camera::*;
 pub use upgrades::*;
 pub use galaxy::*;
 pub use travel::*;
+pub use ship_classes::*;
+pub use abilities::*;
 

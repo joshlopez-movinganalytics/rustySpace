@@ -116,7 +116,7 @@ fn generate_fighter_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
             transform: Transform::from_xyz(0.0, 0.2, 1.0),
             color: Color::srgb(0.3, 0.6, 0.9),
             metallic: 0.9,
-            emissive: Color::srgb(0.05, 0.1, 0.15),
+            emissive: Color::NONE,
         },
         // Left wing
         ShipPieceDefinition {
@@ -144,7 +144,7 @@ fn generate_fighter_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.0, 1.4, 2.0),
+            emissive: Color::NONE,
         },
     ]
 }
@@ -177,7 +177,7 @@ fn generate_corvette_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
             transform: Transform::from_xyz(0.0, 0.3, 2.2),
             color: Color::srgb(0.3, 0.6, 0.9),
             metallic: 0.9,
-            emissive: Color::srgb(0.05, 0.1, 0.15),
+            emissive: Color::NONE,
         },
         // Left wing
         ShipPieceDefinition {
@@ -205,7 +205,7 @@ fn generate_corvette_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.0, 1.4, 2.0),
+            emissive: Color::NONE,
         },
         // Right engine
         ShipPieceDefinition {
@@ -215,7 +215,7 @@ fn generate_corvette_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.0, 1.4, 2.0),
+            emissive: Color::NONE,
         },
     ]
 }
@@ -257,7 +257,7 @@ fn generate_frigate_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
             transform: Transform::from_xyz(0.0, 0.9, 2.8),
             color: Color::srgb(0.3, 0.6, 0.9),
             metallic: 0.9,
-            emissive: Color::srgb(0.05, 0.1, 0.15),
+            emissive: Color::NONE,
         },
         // Left wing structure
         ShipPieceDefinition {
@@ -303,7 +303,7 @@ fn generate_frigate_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.0, 1.4, 2.0),
+            emissive: Color::NONE,
         },
         // Right engine
         ShipPieceDefinition {
@@ -313,7 +313,7 @@ fn generate_frigate_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.0, 1.4, 2.0),
+            emissive: Color::NONE,
         },
     ]
 }
@@ -364,7 +364,7 @@ fn generate_capital_ship_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
             transform: Transform::from_xyz(0.0, 2.0, 1.0),
             color: Color::srgb(0.3, 0.6, 0.9),
             metallic: 0.9,
-            emissive: Color::srgb(0.05, 0.1, 0.15),
+            emissive: Color::NONE,
         },
         // Left wing assembly
         ShipPieceDefinition {
@@ -428,7 +428,7 @@ fn generate_capital_ship_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.25, 1.75, 2.5),
+            emissive: Color::NONE,
         },
         // Right engine cluster - outer
         ShipPieceDefinition {
@@ -438,7 +438,7 @@ fn generate_capital_ship_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.25, 1.75, 2.5),
+            emissive: Color::NONE,
         },
         // Center engine
         ShipPieceDefinition {
@@ -448,7 +448,7 @@ fn generate_capital_ship_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
                 .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
-            emissive: Color::srgb(1.25, 1.75, 2.5),
+            emissive: Color::NONE,
         },
     ]
 }

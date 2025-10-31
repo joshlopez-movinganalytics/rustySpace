@@ -58,11 +58,11 @@ pub fn weapon_firing_system(
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut query: Query<(Entity, &Transform, &Velocity, &mut WeaponMount, &mut Energy), With<Player>>,
+    mut query: Query<(Entity, &Transform, &Velocity, &mut WeaponMount, &mut Energy, &crate::components::ship_classes::ClassBonuses), With<Player>>,
 ) {
     let dt = time.delta_seconds();
     
-    for (entity, transform, velocity, mut weapon_mount, mut energy) in query.iter_mut() {
+    for (entity, transform, velocity, mut weapon_mount, mut energy, bonuses) in query.iter_mut() {
         // Update cooldown timers
         for weapon in weapon_mount.weapons.iter_mut() {
             weapon.cooldown_timer = (weapon.cooldown_timer - dt).max(0.0);
@@ -104,7 +104,9 @@ pub fn weapon_firing_system(
                     && (weapon.max_ammo == 0 || weapon.current_ammo > 0); // Has ammo or infinite
                 
                 if can_fire {
-                    fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, false);
+                    fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, bonuses, false);
+                    // Apply fire rate multiplier to cooldown
+                    weapon.cooldown_timer = (1.0 / weapon.fire_rate) / bonuses.fire_rate_multiplier;
                 } else if weapon.max_ammo > 0 && weapon.current_ammo == 0 && !weapon.is_reloading {
                     // Auto-reload when trying to fire with empty mag
                     if weapon.reserve_ammo > 0 {
@@ -124,9 +126,9 @@ pub fn weapon_firing_system(
                     // Fire 3-shot burst
                     for _i in 0..3 {
                         // For simplicity, fire all 3 immediately with slight spread
-                        fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, true);
+                        fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, bonuses, true);
                     }
-                    weapon.cooldown_timer = 1.0 / weapon.fire_rate;
+                    weapon.cooldown_timer = (1.0 / weapon.fire_rate) / bonuses.fire_rate_multiplier;
                 }
                 // Autocannon spread mode
                 else if weapon.weapon_type == WeaponType::Autocannon && weapon.cooldown_timer <= 0.0 && energy.current >= weapon.energy_cost * 5.0 {
@@ -177,9 +179,10 @@ fn fire_weapon(
     velocity: &Velocity,
     weapon: &mut Weapon,
     energy: &mut Energy,
+    bonuses: &crate::components::ship_classes::ClassBonuses,
     is_burst: bool,
 ) {
-    weapon.cooldown_timer = 1.0 / weapon.fire_rate;
+    // Cooldown is set by caller with fire_rate_multiplier
     energy.current -= weapon.energy_cost;
     
     // Consume heat
@@ -218,13 +221,51 @@ fn fire_weapon(
     
     let projectile_velocity = projectile_direction * weapon.projectile_speed + velocity.0;
     
-    let (mesh, color) = get_weapon_visual(weapon.weapon_type, meshes);
+    // Calculate final damage first (needed for laser color)
+    let base_damage = weapon.damage;
+    let mut final_damage = base_damage * bonuses.damage_multiplier;
+    let is_critical = rand::random::<f32>() < bonuses.critical_chance;
+    if is_critical {
+        final_damage *= bonuses.critical_multiplier;
+    }
+    
+    // Determine piercing for lasers - check if projectile should pierce
+    // This will be set on the Projectile component based on upgrades
+    // For now, lasers don't pierce by default (only railgun does)
+    let laser_piercing = false;
+    
+    // Get weapon visual - for lasers, calculate color based on damage and piercing
+    let (mesh, base_color) = get_weapon_visual(weapon.weapon_type, meshes);
+    let color = if weapon.weapon_type == WeaponType::Laser {
+        calculate_laser_color(base_damage, final_damage, laser_piercing)
+    } else {
+        base_color
+    };
     
     // Determine homing and area damage based on weapon type
-    let (homing_strength, area_damage) = match weapon.weapon_type {
-        WeaponType::Missile => (15.0, 8.0),      // Strong homing, large area
-        WeaponType::FlakCannon => (0.0, 5.0),    // No homing, medium area
-        _ => (0.0, 0.0),                         // No special effects
+    let (homing_strength, area_damage, piercing) = match weapon.weapon_type {
+        WeaponType::Missile => (15.0, 8.0, false),      // Strong homing, large area
+        WeaponType::FlakCannon => (0.0, 5.0, false),    // No homing, medium area
+        WeaponType::Railgun => (0.0, 0.0, true),        // Piercing rounds
+        _ => (0.0, 0.0, false),                         // No special effects
+    };
+    
+    // Calculate rotation based on projectile direction instead of ship rotation
+    // This ensures lasers always face the direction they were shot in
+    let projectile_rotation = if projectile_direction.length() > 0.1 {
+        Transform::from_translation(projectile_pos)
+            .looking_to(projectile_direction, Vec3::Y)
+    } else {
+        Transform::from_translation(projectile_pos)
+            .with_rotation(transform.rotation)
+    };
+    
+    // Set emissive for bloom glow effect - keep color consistent, bloom will add the glow
+    // For bloom to work, emissive should be bright enough to exceed the bloom threshold
+    let emissive_intensity = if weapon.weapon_type == WeaponType::Laser || weapon.weapon_type == WeaponType::BeamLaser {
+        LinearRgba::from(color) * 8.0 // Bright enough for bloom, but color stays consistent
+    } else {
+        LinearRgba::from(color) * 4.0
     };
     
     commands.spawn((
@@ -232,24 +273,24 @@ fn fire_weapon(
             mesh,
             material: materials.add(StandardMaterial {
                 base_color: color,
-                emissive: color.into(),
+                emissive: emissive_intensity,
                 ..default()
             }),
-            transform: Transform::from_translation(projectile_pos)
-                .with_rotation(transform.rotation),
+            transform: projectile_rotation,
             ..default()
         },
         Projectile {
-            damage: weapon.damage,
+            damage: final_damage,
             lifetime: 5.0,
             owner,
             weapon_type: weapon.weapon_type,
             shield_damage_multiplier: weapon.shield_damage_multiplier,
             hull_damage_multiplier: weapon.hull_damage_multiplier,
-            piercing: false,
+            piercing,
             area_damage,
             homing_strength,
             homing_target: None,
+            initial_direction: projectile_direction,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -286,16 +327,24 @@ fn fire_weapon_spread(
     
     let (mesh, color) = get_weapon_visual(weapon.weapon_type, meshes);
     
+    // Calculate rotation based on projectile direction
+    let projectile_rotation = if projectile_direction.length() > 0.1 {
+        Transform::from_translation(projectile_pos)
+            .looking_to(projectile_direction, Vec3::Y)
+    } else {
+        Transform::from_translation(projectile_pos)
+            .with_rotation(transform.rotation)
+    };
+    
     commands.spawn((
         PbrBundle {
             mesh,
             material: materials.add(StandardMaterial {
                 base_color: color,
-                emissive: color.into(),
+                emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                 ..default()
             }),
-            transform: Transform::from_translation(projectile_pos)
-                .with_rotation(transform.rotation),
+            transform: projectile_rotation,
             ..default()
         },
         Projectile {
@@ -309,6 +358,7 @@ fn fire_weapon_spread(
             area_damage: 0.0,
             homing_strength: 0.0,
             homing_target: None,
+            initial_direction: projectile_direction,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -333,6 +383,7 @@ fn fire_missile_swarm(
     
     for offset in offsets.iter() {
         let projectile_pos = transform.translation + forward.as_vec3() * 3.0 + right.as_vec3() * *offset;
+        let projectile_direction = forward.as_vec3().normalize();
         let projectile_velocity = forward.as_vec3() * weapon.projectile_speed + velocity.0;
         
         let (mesh, color) = get_weapon_visual(WeaponType::Missile, meshes);
@@ -342,11 +393,11 @@ fn fire_missile_swarm(
                 mesh,
                 material: materials.add(StandardMaterial {
                     base_color: color,
-                    emissive: color.into(),
+                    emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                     ..default()
                 }),
                 transform: Transform::from_translation(projectile_pos)
-                    .with_rotation(transform.rotation),
+                    .looking_to(projectile_direction, Vec3::Y),
                 ..default()
             },
             Projectile {
@@ -360,6 +411,7 @@ fn fire_missile_swarm(
                 area_damage: 6.0,        // Swarm missiles have smaller area
                 homing_strength: 12.0,    // Slightly weaker homing
                 homing_target: None,
+                initial_direction: projectile_direction,
             },
             Velocity(projectile_velocity),
             Faction::Player,
@@ -381,6 +433,7 @@ fn fire_piercing_railgun(
     
     let forward = transform.forward();
     let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
+    let projectile_direction = forward.as_vec3().normalize();
     let projectile_velocity = forward.as_vec3() * weapon.projectile_speed + velocity.0;
     
     let (mesh, color) = get_weapon_visual(WeaponType::Railgun, meshes);
@@ -390,11 +443,11 @@ fn fire_piercing_railgun(
             mesh,
             material: materials.add(StandardMaterial {
                 base_color: color,
-                emissive: color.into(),
+                emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                 ..default()
             }),
             transform: Transform::from_translation(projectile_pos)
-                .with_rotation(transform.rotation),
+                .looking_to(projectile_direction, Vec3::Y),
             ..default()
         },
         Projectile {
@@ -408,6 +461,7 @@ fn fire_piercing_railgun(
             area_damage: 0.0,
             homing_strength: 0.0,
             homing_target: None,
+            initial_direction: projectile_direction,
         },
         Velocity(projectile_velocity),
         Faction::Player,
@@ -429,6 +483,7 @@ fn fire_charged_plasma(
     
     let forward = transform.forward();
     let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
+    let projectile_direction = forward.as_vec3().normalize();
     let projectile_velocity = forward.as_vec3() * weapon.projectile_speed + velocity.0;
     
     let size = 0.3 + charge * 0.3;
@@ -440,11 +495,11 @@ fn fire_charged_plasma(
             mesh,
             material: materials.add(StandardMaterial {
                 base_color: color,
-                emissive: color.into(),
+                emissive: LinearRgba::from(color) * 4.0, // Bright enough for bloom glow
                 ..default()
             }),
             transform: Transform::from_translation(projectile_pos)
-                .with_rotation(transform.rotation),
+                .looking_to(projectile_direction, Vec3::Y),
             ..default()
         },
         Projectile {
@@ -458,17 +513,50 @@ fn fire_charged_plasma(
             area_damage: charge * 3.0,  // Charged shots have area damage
             homing_strength: 0.0,
             homing_target: None,
+            initial_direction: projectile_direction,
         },
         Velocity(projectile_velocity),
         Faction::Player,
     ));
 }
 
+/// Calculate laser color based on damage and special properties
+/// Green (weakest) -> Yellow -> Orange -> Red (strongest) gradient
+/// Purple for special properties like piercing
+pub fn calculate_laser_color(base_damage: f32, final_damage: f32, piercing: bool) -> Color {
+    if piercing {
+        // Special property: purple for piercing lasers
+        return Color::srgb(0.8, 0.2, 1.0);
+    }
+    
+    // Base damage is reference point (green)
+    // Scale from green to red based on damage multiplier
+    let damage_multiplier = final_damage / base_damage.max(1.0);
+    
+    // Clamp multiplier for color range (1.0 = green, 3.0+ = red)
+    let intensity = ((damage_multiplier - 1.0) / 2.0).clamp(0.0, 1.0);
+    
+    // Gradient: Green -> Yellow -> Orange -> Red
+    if intensity < 0.33 {
+        // Green to Yellow
+        let t = intensity / 0.33;
+        Color::srgb(t, 1.0, 0.0)
+    } else if intensity < 0.66 {
+        // Yellow to Orange
+        let t = (intensity - 0.33) / 0.33;
+        Color::srgb(1.0, 1.0 - t * 0.5, 0.0)
+    } else {
+        // Orange to Red
+        let t = (intensity - 0.66) / 0.34;
+        Color::srgb(1.0, 0.5 - t * 0.5, 0.0)
+    }
+}
+
 fn get_weapon_visual(weapon_type: WeaponType, meshes: &mut ResMut<Assets<Mesh>>) -> (Handle<Mesh>, Color) {
     match weapon_type {
         WeaponType::Laser => (
-            meshes.add(Capsule3d::new(0.1, 1.0)),
-            Color::srgb(1.0, 0.2, 0.2),
+            meshes.add(Capsule3d::new(0.05, 1.5)), // Smaller and sharper (thinner, longer)
+            Color::srgb(0.0, 1.0, 0.0), // Default green (will be overridden with actual damage)
         ),
         WeaponType::Plasma => (
             meshes.add(Sphere::new(0.3)),
@@ -504,16 +592,20 @@ fn get_weapon_visual(weapon_type: WeaponType, meshes: &mut ResMut<Assets<Mesh>>)
 /// Projectile movement system
 pub fn projectile_movement_system(
     time: Res<Time>,
-    mut query: Query<(&Velocity, &mut Transform), With<Projectile>>,
+    mut query: Query<(&Velocity, &mut Transform, &Projectile)>,
 ) {
     let dt = time.delta_seconds();
     
-    for (velocity, mut transform) in query.iter_mut() {
+    for (velocity, mut transform, projectile) in query.iter_mut() {
         transform.translation += velocity.0 * dt;
         
-        // Orient projectile in direction of travel
-        if velocity.0.length() > 0.1 {
-            transform.look_to(velocity.0, Vec3::Y);
+        // Orient projectile in its initial firing direction (not velocity, which includes ship movement)
+        // This ensures lasers always face the direction they were shot in
+        if projectile.initial_direction.length() > 0.1 {
+            transform.look_to(projectile.initial_direction, Vec3::Y);
+        } else if velocity.0.length() > 0.1 {
+            // Fallback: use velocity direction if initial_direction is invalid
+            transform.look_to(velocity.0.normalize(), Vec3::Y);
         }
     }
 }

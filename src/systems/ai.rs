@@ -308,12 +308,18 @@ pub fn ai_combat_system(
                                         
                                         let forward = transform.forward();
                                         let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
+                                        let projectile_direction = forward.as_vec3().normalize();
                                         let projectile_velocity = forward.as_vec3() * weapon.projectile_speed + velocity.0;
                                         
-                                        let (mesh, color) = match weapon.weapon_type {
+                                        // Calculate laser color based on damage (enemies use base damage)
+                                        let base_damage = weapon.damage;
+                                        let final_damage = weapon.damage; // Enemies don't have bonuses
+                                        let laser_piercing = false; // Enemies don't have piercing upgrades
+                                        
+                                        let (mesh, base_color) = match weapon.weapon_type {
                                             WeaponType::Laser => (
-                                                meshes.add(Capsule3d::new(0.1, 1.0)),
-                                                Color::srgb(1.0, 0.5, 0.0),
+                                                meshes.add(Capsule3d::new(0.05, 1.5)), // Smaller and sharper like player lasers
+                                                Color::srgb(0.0, 1.0, 0.0), // Will be overridden
                                             ),
                                             WeaponType::Plasma => (
                                                 meshes.add(Sphere::new(0.3)),
@@ -353,16 +359,38 @@ pub fn ai_combat_system(
                                             _ => (0.0, 0.0, false),                         // Standard projectile
                                         };
                                         
+                                        // Use the calculated color (for lasers) or base color (for other weapons)
+                                        let final_color = if weapon.weapon_type == WeaponType::Laser {
+                                            crate::systems::combat::calculate_laser_color(base_damage, final_damage, laser_piercing)
+                                        } else {
+                                            base_color
+                                        };
+                                        
+                                        // Calculate rotation based on projectile direction instead of ship rotation
+                                        let projectile_rotation = if projectile_direction.length() > 0.1 {
+                                            Transform::from_translation(projectile_pos)
+                                                .looking_to(projectile_direction, Vec3::Y)
+                                        } else {
+                                            Transform::from_translation(projectile_pos)
+                                                .with_rotation(transform.rotation)
+                                        };
+                                        
+                                        // Set emissive for bloom glow effect - keep color consistent, bloom will add the glow
+                                        let emissive_intensity = if weapon.weapon_type == WeaponType::Laser || weapon.weapon_type == WeaponType::BeamLaser {
+                                            LinearRgba::from(final_color) * 8.0 // Bright enough for bloom, but color stays consistent
+                                        } else {
+                                            LinearRgba::from(final_color) * 4.0
+                                        };
+                                        
                                         commands.spawn((
                                             PbrBundle {
                                                 mesh,
                                                 material: materials.add(StandardMaterial {
-                                                    base_color: color,
-                                                    emissive: color.into(),
+                                                    base_color: final_color,
+                                                    emissive: emissive_intensity,
                                                     ..default()
                                                 }),
-                                                transform: Transform::from_translation(projectile_pos)
-                                                    .with_rotation(transform.rotation),
+                                                transform: projectile_rotation,
                                                 ..default()
                                             },
                                             Projectile {
@@ -376,6 +404,7 @@ pub fn ai_combat_system(
                                                 area_damage,
                                                 homing_strength,
                                                 homing_target: None,
+                                                initial_direction: projectile_direction,
                                             },
                                             Velocity(projectile_velocity),
                                             *faction,

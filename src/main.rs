@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::bloom::BloomSettings;
 
 mod components;
 mod resources;
@@ -12,6 +13,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_state::<GameState>()
+        .add_event::<systems::progression::EnemyKillEvent>()
         .add_systems(Startup, (
             setup_game,
             systems::visuals::setup_starfield,
@@ -69,6 +71,27 @@ fn main() {
             systems::visuals::update_ship_visuals_on_upgrade,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
+            progression::init_health_tracking_system,
+            progression::track_damage_dealt_system,
+            progression::track_enemy_kills_system,
+            progression::track_resource_collection_system,
+            progression::display_skill_point_gain_system,
+        ).run_if(in_state(GameState::InGame)))
+        .add_systems(Update, (
+            abilities::ability_activation_system,
+            abilities::update_ability_cooldowns_system,
+            abilities::apply_ability_effects_system,
+            abilities::cleanup_ability_visuals_system,
+            abilities::devastation_effect_system,
+        ).run_if(in_state(GameState::InGame)))
+        .add_systems(Update, (
+            ship_visuals::apply_class_visuals_system,
+            ship_visuals::spawn_ship_attachments_system,
+            ship_visuals::update_attachment_positions_system,
+            ship_visuals::apply_ship_colors_system,
+            ship_visuals::apply_ship_scale_system,
+        ).run_if(in_state(GameState::InGame)))
+        .add_systems(Update, (
             ui::update_hud_system,
             ui::update_weapon_hud_system,
             ui::update_targeting_reticule_system,
@@ -91,16 +114,25 @@ fn main() {
         ))
         .add_systems(OnExit(GameState::InGame), ui::cleanup_targeting_reticule)
         .add_systems(OnEnter(GameState::Upgrade), (
-            ui::setup_upgrade_menu,
+            skill_tree_ui::setup_skill_tree_ui,
             movement::release_cursor_lock,
         ))
         .add_systems(OnExit(GameState::Upgrade), (
-            ui::cleanup_upgrade_menu,
+            skill_tree_ui::cleanup_skill_tree_ui,
             movement::manage_cursor_lock,
         ))
         .add_systems(Update, (
-            ui::upgrade_menu_system,
-            ui::upgrade_menu_scroll_system,
+            skill_tree_ui::update_skill_node_states_system,
+            skill_tree_ui::handle_class_tab_clicks_system,
+            skill_tree_ui::handle_skill_node_clicks_system,
+            ui::apply_upgrades_to_player, // Apply upgrades when viewing skill tree
+            skill_tree_ui::update_stat_panel_system,
+            skill_tree_ui::handle_skill_tree_close_system,
+            skill_tree_ui::rebuild_skill_tree_on_tab_change_system,
+            skill_tree_ui::handle_node_hover_preview_system,
+            skill_tree_ui::skill_tree_scroll_system,
+            skill_tree_ui::display_skill_node_tooltip_system,
+            stat_visualization::update_radar_chart_system,
         ).run_if(in_state(GameState::Upgrade)))
         .add_systems(Update, ui::check_upgrade_key.run_if(in_state(GameState::InGame)))
         .add_systems(Update, ui::check_galaxy_map_key.run_if(in_state(GameState::InGame)))
@@ -172,12 +204,31 @@ fn setup_game(
         color: Color::srgb(0.1, 0.1, 0.15),
         brightness: 150.0,
     });
+    
+    // Set darker background clear color
+    commands.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.05)));
 
-    // Spawn camera
+    // Spawn camera with bloom enabled for glow effects
     commands.spawn((
         Camera3dBundle {
             transform: Transform::from_xyz(0.0, 5.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            camera: Camera {
+                hdr: true, // Enable HDR for bloom to work properly
+                ..default()
+            },
+            // Camera3dBundle already includes Tonemapping by default, no need to add it separately
             ..default()
+        },
+        BloomSettings {
+            intensity: 0.5,
+            low_frequency_boost: 0.02,
+            low_frequency_boost_curvature: 0.2,
+            high_pass_frequency: 0.7,
+            prefilter_settings: bevy::core_pipeline::bloom::BloomPrefilterSettings {
+                threshold: 1.0, // Only bloom objects with emissive > 2.0 (explosions)
+                threshold_softness: 0.5,
+            },
+            composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::EnergyConserving,
         },
         components::camera::CameraController {
             follow_distance: 15.0,
@@ -219,6 +270,9 @@ fn setup_game(
             max: 100.0,
             recharge_rate: 20.0,
         },
+        components::abilities::AbilityController::new(),
+        components::ship_classes::ShipVisualConfig::default(),
+        components::ship_classes::ClassBonuses::new(),
     )).id();
 
     // Build modular ship visuals
@@ -251,6 +305,18 @@ fn setup_game(
 
     // Initialize player upgrades
     commands.insert_resource(components::upgrades::PlayerUpgrades::default());
+    
+    // Initialize class progression and skill points
+    commands.insert_resource(components::ship_classes::ClassProgression::new());
+    
+    // Initialize progression tracker
+    commands.insert_resource(systems::progression::ProgressionTracker::new());
+    
+    // Initialize active class tab (for skill tree UI)
+    commands.insert_resource(systems::skill_tree_ui::ActiveClassTab::default());
+    
+    // Initialize hovered node tracker
+    commands.insert_resource(systems::skill_tree_ui::HoveredNode::default());
 
     // Initialize game resources (reduced spawn time from 5s to 3s for more action)
     commands.insert_resource(resources::SpawnTimer(Timer::from_seconds(3.0, TimerMode::Repeating)));

@@ -1263,19 +1263,23 @@ pub fn upgrade_menu_system(
     }
 }
 
-/// Apply purchased upgrades to player ship
+/// Apply purchased upgrades to player ship (New skill tree system)
+/// Runs in both InGame and Upgrade states to keep stats updated
 pub fn apply_upgrades_to_player(
     upgrades: Res<PlayerUpgrades>,
     mut player_query: Query<
-        (&mut Health, &mut Shield, &mut Energy, &mut crate::components::ship::Ship, &mut WeaponMount),
+        (&mut Health, &mut Shield, &mut Energy, &mut crate::components::ship::Ship, &mut WeaponMount, &mut crate::components::ship_classes::ClassBonuses, &mut crate::components::abilities::AbilityController),
         With<Player>,
     >,
 ) {
+    // Always recalculate bonuses when upgrades change
+    // This ensures stats panel shows correct values even when in Upgrade state
+    // Note: We still need to check if player exists, but we want to recalculate whenever upgrades change
     if !upgrades.is_changed() {
         return;
     }
     
-    if let Ok((mut health, mut shield, mut energy, mut ship, mut weapon_mount)) = player_query.get_single_mut() {
+    if let Ok((mut health, mut shield, mut energy, mut ship, mut weapon_mount, mut bonuses, mut ability_controller)) = player_query.get_single_mut() {
         // Base stats
         let base_health = 100.0;
         let base_shield = 100.0;
@@ -1285,139 +1289,95 @@ pub fn apply_upgrades_to_player(
         let base_speed = 80.0;
         let base_turn_rate = 4.0;
         
-        // Calculate hull upgrades
-        let mut health_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::HullIntegrity1) {
-            health_multiplier += 0.25;
-        }
-        if upgrades.has_upgrade(UpgradeType::HullIntegrity2) {
-            health_multiplier += 0.50;
-        }
-        if upgrades.has_upgrade(UpgradeType::HullIntegrity3) {
-            health_multiplier += 1.0;
+        // Reset all bonuses to default values before applying upgrades
+        bonuses.health_multiplier = 1.0;
+        bonuses.shield_multiplier = 1.0;
+        bonuses.speed_multiplier = 1.0;
+        bonuses.turn_rate_multiplier = 1.0;
+        bonuses.damage_multiplier = 1.0;
+        bonuses.fire_rate_multiplier = 1.0;
+        bonuses.energy_multiplier = 1.0;
+        bonuses.shield_recharge_multiplier = 1.0;
+        bonuses.energy_recharge_multiplier = 1.0;
+        bonuses.damage_reduction = 0.0;
+        bonuses.evasion_chance = 0.0;
+        bonuses.critical_chance = 0.0;
+        bonuses.critical_multiplier = 1.5;
+        bonuses.stealth_level = 0.0;
+        bonuses.detection_range_multiplier = 1.0;
+        bonuses.projectile_speed_multiplier = 1.0;
+        bonuses.missile_count_multiplier = 1.0;
+        
+        // Apply all upgrades using comprehensive system
+        let mut unlocked_count = 0;
+        for upgrade in &upgrades.purchased {
+            let unlocked = crate::systems::upgrade_effects::apply_upgrade_effect(
+                *upgrade,
+                &mut bonuses,
+                &mut weapon_mount,
+            );
+            if unlocked {
+                unlocked_count += 1;
+                println!("[UI System] Unlocked: {}", upgrade.name());
+            }
         }
         
-        health.max = base_health * health_multiplier;
+        if unlocked_count > 0 {
+            println!("[UI System] Unlocked {} new abilities/weapons", unlocked_count);
+        }
+        
+        // Unlock special abilities for capstone upgrades
+        for upgrade in &upgrades.purchased {
+            if let Some(ability) = upgrade.unlocks_ability() {
+                ability_controller.unlock_ability(ability);
+            }
+        }
+        
+        // Apply calculated bonuses
+        health.max = base_health * bonuses.health_multiplier;
         health.current = health.current.min(health.max);
         
-        // Calculate shield upgrades
-        let mut shield_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::ShieldCapacity1) {
-            shield_multiplier += 0.25;
-        }
-        if upgrades.has_upgrade(UpgradeType::ShieldCapacity2) {
-            shield_multiplier += 0.50;
-        }
-        if upgrades.has_upgrade(UpgradeType::ShieldCapacity3) {
-            shield_multiplier += 1.0;
-        }
-        
-        shield.max = base_shield * shield_multiplier;
+        shield.max = base_shield * bonuses.shield_multiplier;
         shield.current = shield.current.min(shield.max);
+        shield.recharge_rate = base_shield_recharge * bonuses.shield_recharge_multiplier;
         
-        let mut shield_recharge_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::ShieldRecharge1) {
-            shield_recharge_multiplier += 0.50;
-        }
-        if upgrades.has_upgrade(UpgradeType::ShieldRecharge2) {
-            shield_recharge_multiplier += 1.0;
-        }
+        ship.max_speed = base_speed * bonuses.speed_multiplier;
+        ship.turn_rate = base_turn_rate * bonuses.turn_rate_multiplier;
         
-        shield.recharge_rate = base_shield_recharge * shield_recharge_multiplier;
-        
-        // Calculate engine upgrades
-        let mut speed_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::EngineSpeed1) {
-            speed_multiplier += 0.20;
-        }
-        if upgrades.has_upgrade(UpgradeType::EngineSpeed2) {
-            speed_multiplier += 0.40;
-        }
-        if upgrades.has_upgrade(UpgradeType::EngineSpeed3) {
-            speed_multiplier += 0.60;
-        }
-        
-        ship.max_speed = base_speed * speed_multiplier;
-        
-        let mut turn_rate_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::Maneuverability1) {
-            turn_rate_multiplier += 0.30;
-        }
-        if upgrades.has_upgrade(UpgradeType::Maneuverability2) {
-            turn_rate_multiplier += 0.60;
-        }
-        
-        ship.turn_rate = base_turn_rate * turn_rate_multiplier;
-        
-        // Calculate power plant upgrades
-        let mut energy_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::PowerCapacity1) {
-            energy_multiplier += 0.50;
-        }
-        if upgrades.has_upgrade(UpgradeType::PowerCapacity2) {
-            energy_multiplier += 1.0;
-        }
-        
-        energy.max = base_energy * energy_multiplier;
+        energy.max = base_energy * bonuses.energy_multiplier;
         energy.current = energy.current.min(energy.max);
+        energy.recharge_rate = base_energy_recharge * bonuses.energy_recharge_multiplier;
         
-        let mut energy_recharge_multiplier = 1.0;
-        if upgrades.has_upgrade(UpgradeType::PowerRecharge1) {
-            energy_recharge_multiplier += 0.50;
-        }
-        if upgrades.has_upgrade(UpgradeType::PowerRecharge2) {
-            energy_recharge_multiplier += 1.0;
-        }
-        
-        energy.recharge_rate = base_energy_recharge * energy_recharge_multiplier;
-        
-        // Add unlocked weapons
-        let has_plasma = weapon_mount.weapons.iter().any(|w| matches!(w.weapon_type, crate::components::combat::WeaponType::Plasma));
-        let has_missile = weapon_mount.weapons.iter().any(|w| matches!(w.weapon_type, crate::components::combat::WeaponType::Missile));
-        let has_railgun = weapon_mount.weapons.iter().any(|w| matches!(w.weapon_type, crate::components::combat::WeaponType::Railgun));
-        
-        if upgrades.has_upgrade(UpgradeType::UnlockPlasma) && !has_plasma {
-            weapon_mount.weapons.push(crate::components::combat::Weapon::plasma());
-            println!("[UI System] Unlocked Plasma Cannon!");
-        }
-        
-        if upgrades.has_upgrade(UpgradeType::UnlockMissile) && !has_missile {
-            weapon_mount.weapons.push(crate::components::combat::Weapon::missile());
-            println!("[UI System] Unlocked Missile Launcher!");
-        }
-        
-        if upgrades.has_upgrade(UpgradeType::UnlockRailgun) && !has_railgun {
-            weapon_mount.weapons.push(crate::components::combat::Weapon::railgun());
-            println!("[UI System] Unlocked Railgun!");
-        }
-        
-        println!("[UI System] Applied upgrades to player ship");
+        println!("[UI System] Applied {} upgrades to player ship", upgrades.purchased.len());
+        println!("[UI System] Damage bonus: +{:.0}%, Fire Rate bonus: +{:.0}%", 
+            (bonuses.damage_multiplier - 1.0) * 100.0,
+            (bonuses.fire_rate_multiplier - 1.0) * 100.0);
     }
 }
 
 fn get_upgrades_for_category(category: UpgradeCategory) -> Vec<UpgradeType> {
     use UpgradeType::*;
+    // Temporary mapping to new class-based system - showing a subset for compatibility
     match category {
         UpgradeCategory::Hull => vec![
-            HullIntegrity1, HullIntegrity2, HullIntegrity3,
-            ArmorPlating1, ArmorPlating2,
+            TankHullPlating1, TankHullPlating2, TankHullPlating3,
+            TankArmorThick1,
         ],
         UpgradeCategory::Shields => vec![
-            ShieldCapacity1, ShieldCapacity2, ShieldCapacity3,
-            ShieldRecharge1, ShieldRecharge2,
+            TankShieldCapacity1, TankShieldCapacity2, TankShieldCapacity3,
+            TankShieldHardening, TankShieldRegeneration,
         ],
         UpgradeCategory::Engines => vec![
-            EngineSpeed1, EngineSpeed2, EngineSpeed3,
-            Maneuverability1, Maneuverability2,
+            FighterEngineBoost1, FighterEngineBoost2,
+            FighterStrafeSpeed1, FighterStrafeSpeed2,
         ],
         UpgradeCategory::PowerPlant => vec![
-            PowerCapacity1, PowerCapacity2,
-            PowerRecharge1, PowerRecharge2,
+            GunnerWeaponDamage1, GunnerWeaponDamage2,
         ],
         UpgradeCategory::Weapons => vec![
-            WeaponDamage1, WeaponDamage2,
-            WeaponFireRate1, WeaponFireRate2,
-            UnlockPlasma, UnlockMissile, UnlockRailgun,
+            GunnerWeaponDamage1, GunnerWeaponDamage2, GunnerWeaponDamage3,
+            GunnerFireRate1, GunnerFireRate2,
+            GunnerPlasmaWeapons, GunnerRailgunUnlock,
         ],
     }
 }
@@ -1783,37 +1743,184 @@ pub fn update_upgrade_notification_pulse(
 
 /// Calculate intercept point for a moving target
 /// Returns the position where the target will be when the projectile arrives
+/// Accounts for both shooter velocity (player speed) and target velocity
+/// 
+/// The projectile velocity is: direction * projectile_speed + shooter_velocity
+/// We need to find the direction and time such that:
+/// shooter_pos + (direction * projectile_speed + shooter_velocity) * t = target_pos + target_velocity * t
 fn calculate_intercept_point(
     shooter_pos: Vec3,
+    shooter_velocity: Vec3,
     target_pos: Vec3,
     target_velocity: Vec3,
     projectile_speed: f32,
+    _shoot_direction: Vec3,
 ) -> Option<Vec3> {
-    // Using iterative approach for intercept calculation
-    let max_iterations = 5;
-    let mut predicted_pos = target_pos;
+    // Safety checks: ensure all inputs are valid
+    if !shooter_pos.is_finite() || !target_pos.is_finite() {
+        return None;
+    }
+    if !shooter_velocity.is_finite() || !target_velocity.is_finite() {
+        return None;
+    }
+    if !projectile_speed.is_finite() || projectile_speed <= 0.0 || projectile_speed > 10000.0 {
+        return None;
+    }
     
-    for _ in 0..max_iterations {
+    // Using iterative approach for intercept calculation
+    // Projectile velocity = aim_direction * projectile_speed + shooter_velocity
+    let max_iterations = 15;
+    let mut predicted_pos = target_pos;
+    let convergence_threshold = 0.01;
+    let min_distance = 0.1;
+    
+    for iteration in 0..max_iterations {
         let to_predicted = predicted_pos - shooter_pos;
         let distance = to_predicted.length();
         
-        if distance < 0.1 {
-            return Some(predicted_pos);
+        // Safety check: ensure distance is valid
+        if !distance.is_finite() || distance > 10000.0 {
+            return None;
         }
         
-        // Calculate time for projectile to reach predicted position
-        let time_to_hit = distance / projectile_speed;
+        if distance < min_distance {
+            // Ensure predicted position is valid before returning
+            if predicted_pos.is_finite() {
+                return Some(predicted_pos);
+            }
+            return None;
+        }
         
-        // Update predicted position based on target velocity
-        predicted_pos = target_pos + target_velocity * time_to_hit;
+        // Calculate the direction from shooter to predicted position
+        let aim_direction = to_predicted / distance;
+        
+        // Projectile's actual velocity vector when fired in this direction
+        // projectile_velocity = aim_direction * projectile_speed + shooter_velocity
+        let projectile_velocity_vec = aim_direction * projectile_speed + shooter_velocity;
+        
+        // Relative velocity between projectile and target
+        let relative_velocity = projectile_velocity_vec - target_velocity;
+        
+        // Check if we're closing (component of relative velocity along aim direction)
+        let closing_speed = relative_velocity.dot(aim_direction);
+        
+        // If we're not closing and we've done a few iterations, it's likely impossible
+        if closing_speed <= 0.0 && iteration > 3 {
+            return None;
+        }
+        
+        // Calculate time to intercept
+        // We need to solve: shooter_pos + projectile_velocity_vec * t = target_pos + target_velocity * t
+        // Which gives: relative_velocity * t = to_predicted
+        // Where relative_velocity = projectile_velocity_vec - target_velocity
+        
+        // To solve for t, we need to find when the projectile will reach the predicted position
+        // The projectile travels along its velocity vector, not directly to predicted_pos
+        // We want to find t where: |shooter_pos + projectile_velocity_vec * t - (target_pos + target_velocity * t)| = 0
+        // Or: |to_predicted - relative_velocity * t| = 0 (where to_predicted is at time 0)
+        
+        // For the iterative solution, we approximate by assuming we're aiming directly at predicted_pos
+        // The closing speed tells us how fast we're approaching along the aim direction
+        // But we need to account for the fact that the projectile doesn't travel exactly along aim_direction
+        
+        // Solve the quadratic equation properly
+        // We want: shooter_pos + projectile_velocity_vec * t = target_pos + target_velocity * t
+        // Which is: (aim_dir * proj_speed + shooter_vel - target_vel) * t = target_pos - shooter_pos
+        // Or: relative_velocity * t = target_pos - shooter_pos
+        // Taking the squared magnitude: |relative_velocity * t - (target_pos - shooter_pos)|^2 = 0
+        
+        // Note: We need to use the CURRENT target position, not predicted_pos
+        // because we're solving for when the projectile (fired in aim_dir) will meet the target
+        let to_current_target = target_pos - shooter_pos;
+        
+        // The equation is: |relative_velocity * t - to_current_target|^2 = 0
+        // Expanding: |relative_velocity|^2*t^2 - 2*relative_velocity.dot(to_current_target)*t + |to_current_target|^2 = 0
+        let a = relative_velocity.length_squared();
+        let b = -2.0 * relative_velocity.dot(to_current_target);
+        let c = to_current_target.length_squared();
+        
+        // Solve quadratic: t = (-b ± sqrt(b^2 - 4ac)) / (2a)
+        // We want the positive solution where the projectile meets the target
+        let discriminant = b * b - 4.0 * a * c;
+        
+        // Safety check: ensure discriminant and coefficients are finite
+        if !discriminant.is_finite() || !a.is_finite() || !b.is_finite() || !c.is_finite() {
+            return None;
+        }
+        
+        let time_to_hit = if discriminant >= 0.0 && a > 0.001 {
+            // Two solutions: take the positive one
+            let sqrt_discriminant = discriminant.sqrt();
+            let t1 = (-b + sqrt_discriminant) / (2.0 * a);
+            let t2 = (-b - sqrt_discriminant) / (2.0 * a);
+            
+            // Use the positive, smaller solution (earlier intercept)
+            if t1 > 0.0 && t2 > 0.0 {
+                t1.min(t2).clamp(0.0, 100.0) // Clamp to reasonable time range
+            } else if t1 > 0.0 {
+                t1.clamp(0.0, 100.0)
+            } else if t2 > 0.0 {
+                t2.clamp(0.0, 100.0)
+            } else {
+                // No positive solution, fall back to closing speed method
+                if closing_speed > 0.001 {
+                    (distance / closing_speed).clamp(0.0, 100.0)
+                } else {
+                    (distance / projectile_speed.max(0.1)).clamp(0.0, 100.0)
+                }
+            }
+        } else {
+            // No real solution or relative velocity too small, use approximation
+            if closing_speed > 0.001 {
+                (distance / closing_speed).clamp(0.0, 100.0)
+            } else {
+                (distance / projectile_speed.max(0.1)).clamp(0.0, 100.0)
+            }
+        };
+        
+        // Safety check: ensure time_to_hit is valid
+        if !time_to_hit.is_finite() || time_to_hit < 0.0 || time_to_hit > 100.0 {
+            return None;
+        }
+        
+        // Predict where target will be at that time
+        let new_predicted_pos = target_pos + target_velocity * time_to_hit;
+        
+        // Safety check: ensure new predicted position is valid
+        if !new_predicted_pos.is_finite() {
+            return None;
+        }
+        
+        // Check convergence
+        let error = (new_predicted_pos - predicted_pos).length();
+        if error.is_finite() && error < convergence_threshold {
+            return Some(new_predicted_pos);
+        }
+        
+        // Prevent infinite loop if we're oscillating
+        if iteration > 5 && error.is_finite() && error > distance * 0.5 {
+            // Not converging well, return current best estimate if valid
+            if predicted_pos.is_finite() {
+                return Some(predicted_pos);
+            }
+            return None;
+        }
+        
+        predicted_pos = new_predicted_pos;
     }
     
-    Some(predicted_pos)
+    // Return best estimate after max iterations (if valid)
+    if predicted_pos.is_finite() {
+        Some(predicted_pos)
+    } else {
+        None
+    }
 }
 
 /// Update targeting reticule position and color based on where bullets will go
+/// Now accounts for player velocity, enemy velocity, and projectile speed for accurate prediction
 pub fn update_targeting_reticule_system(
-    player_query: Query<(&Transform, &WeaponMount), With<Player>>,
+    player_query: Query<(&Transform, &WeaponMount, &crate::components::ship::Velocity, &crate::components::ship_classes::ClassBonuses), With<Player>>,
     enemy_query: Query<(&Transform, &crate::components::ship::Velocity), (With<crate::components::ai::Enemy>, Without<Player>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<crate::components::camera::CameraController>>,
     mut reticule_query: Query<&mut Style, (With<TargetingReticule>, Without<LeadIndicator>)>,
@@ -1821,7 +1928,7 @@ pub fn update_targeting_reticule_system(
     mut center_query: Query<&mut BackgroundColor, (With<ReticuleCenter>, Without<Player>)>,
     mut lead_query: Query<(&mut Style, &mut Visibility, &mut BorderColor), (With<LeadIndicator>, Without<TargetingReticule>, Without<ReticuleCircle>)>,
 ) {
-    let Ok((player_transform, weapon_mount)) = player_query.get_single() else {
+    let Ok((player_transform, weapon_mount, player_velocity, bonuses)) = player_query.get_single() else {
         return;
     };
     
@@ -1829,15 +1936,30 @@ pub fn update_targeting_reticule_system(
         return;
     };
     
-    // Get current weapon's projectile speed
-    let projectile_speed = if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
+    // Get current weapon's projectile speed and apply bonuses
+    let base_projectile_speed = if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
         weapon.projectile_speed
     } else {
         150.0 // Default speed if no weapon
     };
+    let projectile_speed = base_projectile_speed * bonuses.projectile_speed_multiplier;
     
     let forward = player_transform.forward();
+    let forward_vec = forward.as_vec3();
+    
+    // Safety check: ensure forward vector is valid (not NaN or zero)
+    if !forward_vec.is_finite() || forward_vec.length_squared() < 0.01 {
+        // Forward vector is invalid, don't update reticule
+        return;
+    }
+    
     let player_pos = player_transform.translation;
+    let player_vel = player_velocity.0;
+    
+    // Safety check: ensure player position is valid
+    if !player_pos.is_finite() {
+        return;
+    }
     
     // Find closest enemy in front of player
     let target_cone_angle = 15.0_f32.to_radians(); // Wider cone for lead indicator
@@ -1847,58 +1969,97 @@ pub fn update_targeting_reticule_system(
     for (enemy_transform, enemy_velocity) in enemy_query.iter() {
         let to_enemy = enemy_transform.translation - player_pos;
         let distance = to_enemy.length();
+        
+        // Safety check: skip invalid distances
+        if !distance.is_finite() || distance < 0.1 || distance > 300.0 {
+            continue;
+        }
+        
         let direction = to_enemy.normalize();
-        let dot = forward.dot(direction);
+        
+        // Safety check: ensure direction is valid
+        if !direction.is_finite() {
+            continue;
+        }
+        
+        let dot = forward_vec.dot(direction);
         
         // Check if enemy is in front and within cone
-        if dot > target_cone_angle.cos() && distance < closest_dist && distance < 300.0 {
+        if dot.is_finite() && dot > target_cone_angle.cos() && distance < closest_dist {
             closest_dist = distance;
             closest_enemy = Some((enemy_transform.translation, enemy_velocity.0, distance));
         }
     }
     
-    // Calculate main reticule position
+    // Calculate main reticule position (unchanged - uses forward direction)
     // Use raycast along forward direction to find aiming point
-    let aim_distance = closest_enemy.as_ref().map(|(_, _, d)| *d).unwrap_or(100.0);
-    let aim_point = player_pos + forward.as_vec3() * aim_distance;
+    let aim_distance = closest_enemy.as_ref()
+        .map(|(_, _, d)| d.clamp(10.0, 500.0)) // Clamp distance to safe range
+        .unwrap_or(100.0);
+    let aim_point = player_pos + forward_vec * aim_distance;
+    
+    // Safety check: ensure aim point is valid before projecting
+    if !aim_point.is_finite() {
+        return;
+    }
     
     // Project 3D aim point to screen coordinates
     if let Some(screen_pos) = camera.world_to_viewport(camera_transform, aim_point) {
-        // Position reticule at screen coordinates (centered on the aim point)
-        for mut style in reticule_query.iter_mut() {
-            style.left = Val::Px(screen_pos.x - 15.0); // Center the 30px reticule
-            style.top = Val::Px(screen_pos.y - 15.0);
+        // Safety check: ensure screen position is valid
+        if screen_pos.x.is_finite() && screen_pos.y.is_finite() {
+            // Position reticule at screen coordinates (centered on the aim point)
+            for mut style in reticule_query.iter_mut() {
+                style.left = Val::Px(screen_pos.x - 15.0); // Center the 30px reticule
+                style.top = Val::Px(screen_pos.y - 15.0);
+            }
         }
     }
     
-    // Update lead indicator
+    // Update lead indicator (prediction square) - shows accurate intercept point
+    // Accounts for player velocity, enemy velocity, and projectile speed
     if let Ok((mut lead_style, mut lead_visibility, mut lead_border)) = lead_query.get_single_mut() {
         if let Some((target_pos, target_vel, distance)) = closest_enemy {
-            // Check if target is moving significantly
+            // Check if target is moving significantly or player is moving
             let target_speed = target_vel.length();
+            let player_speed = player_vel.length();
             
-            if target_speed > 5.0 { // Only show lead indicator if target is moving
-                // Calculate intercept point
+            // Show lead indicator if either target or player is moving significantly
+            if target_speed > 5.0 || player_speed > 5.0 {
+                // Calculate intercept point using the improved algorithm
                 if let Some(intercept_point) = calculate_intercept_point(
                     player_pos,
+                    player_vel,
                     target_pos,
                     target_vel,
                     projectile_speed,
+                    forward_vec,
                 ) {
-                    // Project intercept point to screen
-                    if let Some(lead_screen_pos) = camera.world_to_viewport(camera_transform, intercept_point) {
-                        lead_style.left = Val::Px(lead_screen_pos.x - 10.0); // Center the 20px indicator
-                        lead_style.top = Val::Px(lead_screen_pos.y - 10.0);
-                        *lead_visibility = Visibility::Visible;
-                        
-                        // Color based on accuracy - orange if good lead, yellow if needs adjustment
-                        let lead_offset = (intercept_point - target_pos).length();
-                        let color = if lead_offset > distance * 0.3 {
-                            Color::srgba(1.0, 1.0, 0.0, 0.8) // Yellow for large lead
+                    // Safety check: ensure intercept point is valid
+                    if intercept_point.is_finite() {
+                        // Project intercept point to screen
+                        if let Some(lead_screen_pos) = camera.world_to_viewport(camera_transform, intercept_point) {
+                            // Safety check: ensure screen position is valid
+                            if lead_screen_pos.x.is_finite() && lead_screen_pos.y.is_finite() {
+                                lead_style.left = Val::Px(lead_screen_pos.x - 10.0); // Center the 20px indicator
+                                lead_style.top = Val::Px(lead_screen_pos.y - 10.0);
+                                *lead_visibility = Visibility::Visible;
+                                
+                                // Color based on lead distance - more noticeable for larger leads
+                                let lead_offset = (intercept_point - target_pos).length();
+                                if lead_offset.is_finite() {
+                                    let color = if lead_offset > distance * 0.3 {
+                                        Color::srgba(1.0, 1.0, 0.0, 0.8) // Yellow for large lead
+                                    } else {
+                                        Color::srgba(1.0, 0.5, 0.0, 0.8) // Orange for good lead
+                                    };
+                                    *lead_border = color.into();
+                                }
+                            } else {
+                                *lead_visibility = Visibility::Hidden;
+                            }
                         } else {
-                            Color::srgba(1.0, 0.5, 0.0, 0.8) // Orange for good lead
-                        };
-                        *lead_border = color.into();
+                            *lead_visibility = Visibility::Hidden;
+                        }
                     } else {
                         *lead_visibility = Visibility::Hidden;
                     }
@@ -1918,11 +2079,25 @@ pub fn update_targeting_reticule_system(
     let mut enemy_in_crosshair = false;
     
     for (enemy_transform, _) in enemy_query.iter() {
-        let to_enemy = (enemy_transform.translation - player_pos).normalize();
-        let dot = forward.dot(to_enemy);
+        let to_enemy = enemy_transform.translation - player_pos;
+        let distance = to_enemy.length();
+        
+        // Safety check: skip invalid distances
+        if !distance.is_finite() || distance < 0.1 {
+            continue;
+        }
+        
+        let direction = to_enemy.normalize();
+        
+        // Safety check: ensure direction is valid
+        if !direction.is_finite() {
+            continue;
+        }
+        
+        let dot = forward_vec.dot(direction);
         
         // dot = cos(angle), so if angle < threshold, we're aiming at enemy
-        if dot > precise_cone_angle.cos() {
+        if dot.is_finite() && dot > precise_cone_angle.cos() {
             enemy_in_crosshair = true;
             break;
         }

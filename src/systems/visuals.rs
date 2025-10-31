@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use crate::components::ship::*;
-use crate::components::upgrades::{PlayerUpgrades, UpgradeCategory};
+use crate::components::upgrades::{PlayerUpgrades, UpgradeCategory, UpgradeType};
 
 /// Star marker component with parallax speed
 #[derive(Component)]
@@ -36,11 +36,11 @@ pub fn setup_starfield(
         let y = r * phi.sin() * theta.sin();
         let z = r * phi.cos();
         
-        // Random size for depth variation
-        let size = 0.1 + rand::random::<f32>() * 0.4;
+        // Random size for depth variation - make stars smaller
+        let size = 0.03 + rand::random::<f32>() * 0.12;
         
-        // Random brightness
-        let brightness = 1.0 + rand::random::<f32>() * 3.0;
+        // Random brightness with glow effect - increase brightness for glow
+        let brightness = 2.0 + rand::random::<f32>() * 5.0;
         
         // Parallax speed based on distance (closer stars move faster)
         let parallax_speed = 1.0 - (r / STARFIELD_RADIUS) * 0.7;
@@ -176,9 +176,9 @@ pub fn update_ship_visuals_on_upgrade(
     }
     
     for (ship_entity, mut upgrade_visuals) in ship_query.iter_mut() {
-        // Check for hull upgrades (armor plating)
+        // Check for tank upgrades (armor/hull)
         let hull_upgrade_count = upgrades.purchased.iter()
-            .filter(|u| u.category() == UpgradeCategory::Hull)
+            .filter(|u| u.class() == crate::components::ship_classes::ShipClass::Tank)
             .count();
         
         // Add armor pieces if needed
@@ -194,9 +194,9 @@ pub fn update_ship_visuals_on_upgrade(
             );
         }
         
-        // Check for engine upgrades
+        // Check for fighter upgrades (engines)
         let engine_upgrade_count = upgrades.purchased.iter()
-            .filter(|u| u.category() == UpgradeCategory::Engines)
+            .filter(|u| u.class() == crate::components::ship_classes::ShipClass::Fighter)
             .count();
         
         // Enhance engine glow
@@ -210,9 +210,9 @@ pub fn update_ship_visuals_on_upgrade(
             );
         }
         
-        // Check for weapon upgrades
+        // Check for gunner upgrades (weapons)
         let weapon_upgrade_count = upgrades.purchased.iter()
-            .filter(|u| u.category() == UpgradeCategory::Weapons)
+            .filter(|u| u.class() == crate::components::ship_classes::ShipClass::Gunner)
             .count();
         
         // Add weapon hardpoints
@@ -228,9 +228,12 @@ pub fn update_ship_visuals_on_upgrade(
             );
         }
         
-        // Check for shield upgrades
+        // Check for tank shield upgrades
         let shield_upgrade_count = upgrades.purchased.iter()
-            .filter(|u| u.category() == UpgradeCategory::Shields)
+            .filter(|u| matches!(u, 
+                UpgradeType::TankShieldCapacity1 | UpgradeType::TankShieldCapacity2 | 
+                UpgradeType::TankShieldCapacity3 | UpgradeType::TankShieldHardening |
+                UpgradeType::TankShieldRegeneration))
             .count();
         
         // Add shield emitters
@@ -379,7 +382,6 @@ fn add_shield_emitter(
                 base_color: Color::srgb(0.3, 0.5, 0.9),
                 metallic: 0.8,
                 perceptual_roughness: 0.2,
-                emissive: LinearRgba::rgb(0.3, 0.6, 1.2),
                 ..default()
             }),
             transform: Transform::from_translation(positions[index]),
