@@ -2,3 +2,5 @@
 alwaysApply: true
 ---
 For ecosystem of rust game packages: https://arewegameyet.rs/#ecosystem
+
+**Bloom/Glow does not work if unlit:true**

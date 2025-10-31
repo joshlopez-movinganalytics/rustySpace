@@ -100,6 +100,8 @@ fn main() {
             ship_visuals::update_attachment_positions_system,
             ship_visuals::apply_ship_colors_system,
             ship_visuals::apply_ship_scale_system,
+            ship_visuals::animate_ship_lights_system,
+            ship_visuals::update_lights_for_ship_state_system,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(Update, (
             ui::update_hud_system,

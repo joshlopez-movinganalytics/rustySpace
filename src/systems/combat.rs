@@ -26,7 +26,7 @@ pub fn autofire_toggle_system(
 /// Turret targeting system - finds and tracks nearest enemy
 pub fn autofire_targeting_system(
     mut player_query: Query<(&Transform, &mut AutoTurret), With<Player>>,
-    enemy_query: Query<(Entity, &Transform, &Health), (With<Enemy>, Without<Player>)>,
+    enemy_query: Query<(Entity, &Transform, &Health, &Enemy), (With<Enemy>, Without<Player>)>,
 ) {
     for (player_transform, mut turret) in player_query.iter_mut() {
         if !turret.enabled {
@@ -38,7 +38,7 @@ pub fn autofire_targeting_system(
         let mut closest_distance = turret.max_lock_range;
         let mut closest_enemy = None;
         
-        for (enemy_entity, enemy_transform, _health) in enemy_query.iter() {
+        for (enemy_entity, enemy_transform, _health, _enemy_type) in enemy_query.iter() {
             let distance = player_transform.translation.distance(enemy_transform.translation);
             if distance < closest_distance {
                 closest_distance = distance;
@@ -47,21 +47,34 @@ pub fn autofire_targeting_system(
         }
         
         // Update target
-        if let Some(old_target) = turret.current_target {
+        let old_target = turret.current_target;
+        if let Some(old_target_entity) = old_target {
             // Check if old target still exists and is in range
-            if let Ok((_, target_transform, _)) = enemy_query.get(old_target) {
+            if let Ok((_, target_transform, _, enemy_type)) = enemy_query.get(old_target_entity) {
                 let distance = player_transform.translation.distance(target_transform.translation);
                 if distance > turret.max_lock_range {
+                    println!("[Turret Targeting] Target {:?} out of range ({:.1} > {:.1}), switching targets",
+                        enemy_type.enemy_type, distance, turret.max_lock_range);
                     turret.current_target = closest_enemy;
                 } else {
                     // Keep tracking current target
-                    turret.current_target = Some(old_target);
+                    turret.current_target = Some(old_target_entity);
                 }
             } else {
                 // Old target destroyed, find new one
+                println!("[Turret Targeting] ⚠️ TARGET VANISHED - Old target no longer in query, acquiring new target");
                 turret.current_target = closest_enemy;
             }
         } else {
+            // No current target, acquire new one
+            if closest_enemy.is_some() {
+                if let Some(new_target) = closest_enemy {
+                    if let Ok((_, _, _, enemy_type)) = enemy_query.get(new_target) {
+                        println!("[Turret Targeting] 🎯 New target acquired: {:?} at {:.1} units",
+                            enemy_type.enemy_type, closest_distance);
+                    }
+                }
+            }
             turret.current_target = closest_enemy;
         }
     }
@@ -163,6 +176,10 @@ pub fn autofire_aiming_system(
                 turret.current_rotation = rotation * turret.current_rotation;
                 turret.current_rotation = turret.current_rotation.normalize();
             }
+        } else {
+            // Target no longer exists (died, despawned, or otherwise removed)
+            println!("[Turret Track] ⚠️ TARGET LOST - Entity no longer exists, clearing target");
+            turret.current_target = None;
         }
     }
 }
@@ -1152,7 +1169,10 @@ fn get_weapon_visual(weapon_type: WeaponType, meshes: &mut ResMut<Assets<Mesh>>)
             Color::srgb(0.2, 0.5, 1.0),
         ),
         WeaponType::Autocannon => (
-            meshes.add(Capsule3d::new(0.08, 0.6)),
+            meshes.add(Cone {
+                radius: 0.03,
+                height: 0.4,
+            }),
             Color::srgb(1.0, 0.6, 0.0),
         ),
         WeaponType::IonCannon => (
@@ -1404,10 +1424,15 @@ pub fn projectile_collision_system(
 /// Damage system
 pub fn damage_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health)>,
+    query: Query<(Entity, &Health, Option<&Enemy>)>,
 ) {
-    for (entity, health) in query.iter() {
+    for (entity, health, enemy) in query.iter() {
         if health.current <= 0.0 {
+            if let Some(enemy) = enemy {
+                println!("[Damage System] Marking {:?} as dead (Health: {:.1})", enemy.enemy_type, health.current);
+            } else {
+                println!("[Damage System] Marking player as dead (Health: {:.1})", health.current);
+            }
             commands.entity(entity).try_insert(DeadShip);
         }
     }

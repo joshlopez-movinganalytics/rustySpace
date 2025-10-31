@@ -47,6 +47,33 @@ pub struct UpgradeVisuals {
     pub shield_pieces: Vec<Entity>,
 }
 
+/// Type of ship light
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShipLightType {
+    NavigationLight,
+    AccentLight,
+    StatusLight,
+}
+
+/// Light animation pattern
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightAnimation {
+    Static,
+    Pulse,
+    Blink,
+}
+
+/// Component for individual ship lights
+#[derive(Component, Clone)]
+pub struct ShipLight {
+    pub light_type: ShipLightType,
+    pub animation: LightAnimation,
+    pub base_color: Color,
+    pub base_intensity: f32,
+    pub parent_ship: Entity,
+    pub animation_offset: f32, // Random offset for varied timing
+}
+
 /// Ship component with flight characteristics
 #[derive(Component, Clone, Serialize, Deserialize)]
 pub struct Ship {

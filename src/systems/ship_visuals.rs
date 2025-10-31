@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 use crate::components::{
-    ship::{Player, ShipPiece, ShipPieceType},
+    ship::{Player, ShipLight, LightAnimation, Velocity},
     ship_classes::{
         ClassProgression, ShipClass, ShipVisualConfig, ShipMeshVariant, 
         ShipAttachment, AttachmentType
     },
     upgrades::PlayerUpgrades,
+    combat::{Health, Shield},
 };
 
 /// System to apply visual changes based on class progression
@@ -323,6 +324,140 @@ pub fn apply_ship_scale_system(
     if let Ok((visual_config, mut transform)) = query.get_single_mut() {
         transform.scale = Vec3::splat(visual_config.scale_modifier);
         println!("[Ship Visuals] Applied scale: {}", visual_config.scale_modifier);
+    }
+}
+
+/// Animate ship lights with pulse and blink effects
+pub fn animate_ship_lights_system(
+    time: Res<Time>,
+    mut lights_query: Query<(&ShipLight, &Handle<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (light, material_handle) in lights_query.iter_mut() {
+        if let Some(material) = materials.get_mut(material_handle) {
+            let time_offset = time.elapsed_seconds() + light.animation_offset;
+            let srgba = light.base_color.to_srgba();
+            
+            match light.animation {
+                LightAnimation::Static => {
+                    // No animation, keep base intensity
+                    let emissive = LinearRgba::rgb(
+                        srgba.red * light.base_intensity,
+                        srgba.green * light.base_intensity,
+                        srgba.blue * light.base_intensity,
+                    );
+                    material.emissive = emissive;
+                }
+                LightAnimation::Pulse => {
+                    // Smooth sine wave pulse: 2 second cycle
+                    let pulse_freq = 0.5; // 0.5 Hz = 2 second cycle
+                    let pulse = (time_offset * pulse_freq * std::f32::consts::TAU).sin();
+                    // Map sine wave from [-1, 1] to [0.5, 1.0] for intensity multiplier
+                    let intensity_multiplier = 0.75 + (pulse * 0.25);
+                    let intensity = light.base_intensity * intensity_multiplier;
+                    let emissive = LinearRgba::rgb(
+                        srgba.red * intensity,
+                        srgba.green * intensity,
+                        srgba.blue * intensity,
+                    );
+                    material.emissive = emissive;
+                }
+                LightAnimation::Blink => {
+                    // On/off toggle: 0.5s on, 0.5s off
+                    let blink_freq = 1.0; // 1 Hz = 1 second cycle
+                    let blink_phase = (time_offset * blink_freq) % 1.0;
+                    let is_on = blink_phase < 0.5;
+                    
+                    let intensity = if is_on {
+                        light.base_intensity
+                    } else {
+                        light.base_intensity * 0.2 // Dim but not completely off
+                    };
+                    let emissive = LinearRgba::rgb(
+                        srgba.red * intensity,
+                        srgba.green * intensity,
+                        srgba.blue * intensity,
+                    );
+                    material.emissive = emissive;
+                }
+            }
+        }
+    }
+}
+
+/// Update lights based on ship state (boosting, taking damage, etc.)
+pub fn update_lights_for_ship_state_system(
+    player_query: Query<(&Velocity, &Health, &Shield), With<Player>>,
+    mut lights_query: Query<(&mut ShipLight, &Handle<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+) {
+    if let Ok((velocity, health, shield)) = player_query.get_single() {
+        // Determine ship state
+        let speed = velocity.0.length();
+        let is_boosting = speed > 70.0; // Boosting threshold
+        let health_percent = health.current / health.max;
+        let shield_percent = shield.current / shield.max;
+        let is_damaged = health_percent < 0.5 || shield_percent < 0.3;
+        
+        for (mut light, material_handle) in lights_query.iter_mut() {
+            if let Some(material) = materials.get_mut(material_handle) {
+                let time_offset = time.elapsed_seconds() + light.animation_offset;
+                let srgba = light.base_color.to_srgba();
+                
+                // Modify light behavior based on state
+                if is_boosting {
+                    // Intensify all lights and speed up pulse
+                    let boost_multiplier = 1.3;
+                    let pulse_freq = 1.0; // Faster pulse when boosting (1 second cycle)
+                    let pulse = (time_offset * pulse_freq * std::f32::consts::TAU).sin();
+                    let intensity_multiplier = 0.85 + (pulse * 0.15);
+                    let intensity = light.base_intensity * boost_multiplier * intensity_multiplier;
+                    let emissive = LinearRgba::rgb(
+                        srgba.red * intensity,
+                        srgba.green * intensity,
+                        srgba.blue * intensity,
+                    );
+                    material.emissive = emissive;
+                } else if is_damaged {
+                    // Flicker/rapid blink on status lights, red tint on others
+                    match light.animation {
+                        LightAnimation::Static | LightAnimation::Pulse => {
+                            // Add red warning tint
+                            let damage_r = srgba.red * 1.5 + 0.3;
+                            let damage_g = srgba.green * 0.6;
+                            let damage_b = srgba.blue * 0.6;
+                            let emissive = LinearRgba::rgb(
+                                damage_r * light.base_intensity,
+                                damage_g * light.base_intensity,
+                                damage_b * light.base_intensity,
+                            );
+                            material.emissive = emissive;
+                        }
+                        LightAnimation::Blink => {
+                            // Rapid flicker
+                            let flicker_freq = 3.0; // 3 Hz = very fast blink
+                            let flicker_phase = (time_offset * flicker_freq) % 1.0;
+                            let is_on = flicker_phase < 0.7;
+                            
+                            let intensity = if is_on {
+                                light.base_intensity
+                            } else {
+                                light.base_intensity * 0.1
+                            };
+                            // Orange warning
+                            let emissive = LinearRgba::rgb(
+                                1.0 * intensity,
+                                0.2 * intensity,
+                                0.0 * intensity,
+                            );
+                            material.emissive = emissive;
+                        }
+                    }
+                }
+                // If neither boosting nor damaged, the animate_ship_lights_system handles normal animation
+            }
+        }
     }
 }
 

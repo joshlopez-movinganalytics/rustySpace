@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::components::ship::{ShipType, ShipPiece, ShipPieceType, ShipVisuals, UpgradeVisuals};
+use crate::components::ship::{ShipType, ShipPiece, ShipPieceType, ShipVisuals, UpgradeVisuals, ShipLight, ShipLightType, LightAnimation};
 
 /// Definition of a ship piece for procedural generation
 pub struct ShipPieceDefinition {
@@ -16,6 +16,16 @@ pub enum PieceShape {
     Cuboid { x: f32, y: f32, z: f32 },
     Cylinder { radius: f32, height: f32 },
     Capsule { radius: f32, depth: f32 },
+}
+
+/// Definition of a ship light for procedural generation
+pub struct ShipLightDefinition {
+    pub light_type: ShipLightType,
+    pub animation: LightAnimation,
+    pub position: Vec3,
+    pub color: Color,
+    pub intensity: f32,
+    pub size: f32,
 }
 
 /// Main function to build a ship with all its modular pieces
@@ -48,6 +58,24 @@ pub fn build_ship(
             materials,
             parent_entity,
             piece_def,
+        );
+    }
+    
+    // Generate and spawn lights for this ship type
+    let lights = match ship_type {
+        ShipType::Fighter => generate_fighter_lights(base_color),
+        ShipType::Corvette => generate_corvette_lights(base_color),
+        ShipType::Frigate => generate_frigate_lights(base_color),
+        ShipType::CapitalShip => generate_capital_ship_lights(base_color),
+    };
+    
+    for light_def in lights {
+        spawn_ship_light(
+            commands,
+            meshes,
+            materials,
+            parent_entity,
+            light_def,
         );
     }
 }
@@ -449,6 +477,572 @@ fn generate_capital_ship_layout(base_color: Color) -> Vec<ShipPieceDefinition> {
             color: Color::srgb(0.3, 0.3, 0.3),
             metallic: 0.9,
             emissive: Color::NONE,
+        },
+    ]
+}
+
+/// Spawn a single ship light as a child entity
+fn spawn_ship_light(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    parent_entity: Entity,
+    light_def: ShipLightDefinition,
+) {
+    let mesh = meshes.add(Sphere::new(light_def.size));
+    
+    // Convert color to linear RGB space and apply intensity
+    // Using higher multiplier to compensate for sRGB to linear conversion
+    let srgba = light_def.color.to_srgba();
+    let emissive_color = LinearRgba::rgb(
+        srgba.red * light_def.intensity,
+        srgba.green * light_def.intensity,
+        srgba.blue * light_def.intensity,
+    ) * 100.0;
+    
+    let material = materials.add(StandardMaterial {
+        base_color: light_def.color,
+        emissive: emissive_color,
+        unlit: false, // Lights should emit light, not receive it
+        ..default()
+    });
+    
+    // Random animation offset for varied timing
+    let animation_offset = rand::random::<f32>() * std::f32::consts::TAU;
+    
+    let light_entity = commands.spawn((
+        PbrBundle {
+            mesh,
+            material,
+            transform: Transform::from_translation(light_def.position),
+            ..default()
+        },
+        ShipLight {
+            light_type: light_def.light_type,
+            animation: light_def.animation,
+            base_color: light_def.color,
+            base_intensity: light_def.intensity,
+            parent_ship: parent_entity,
+            animation_offset,
+        },
+    )).id();
+    
+    commands.entity(parent_entity).add_child(light_entity);
+}
+
+/// Generate lights for fighter ship
+fn generate_fighter_lights(base_color: Color) -> Vec<ShipLightDefinition> {
+    vec![
+        // Left wing tip - red navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-2.0, 0.0, -0.3),
+            color: Color::srgb(1.0, 0.0, 0.0),
+            intensity: 3.0,
+            size: 0.08,
+        },
+        // Right wing tip - green navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(2.0, 0.0, -0.3),
+            color: Color::srgb(0.0, 1.0, 0.0),
+            intensity: 3.0,
+            size: 0.08,
+        },
+        // Forward white light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(0.0, 0.2, 1.4),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 2.5,
+            size: 0.06,
+        },
+        // Engine glow left
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.15, 0.0, -1.5),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        // Engine glow right
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.15, 0.0, -1.5),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        // Hull accent lights
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.6, 0.15, 0.5),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.05,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.6, 0.15, 0.5),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.05,
+        },
+        // Status light
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.0, 0.3, 0.0),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 2.5,
+            size: 0.06,
+        },
+    ]
+}
+
+/// Generate lights for corvette ship
+fn generate_corvette_lights(base_color: Color) -> Vec<ShipLightDefinition> {
+    vec![
+        // Left wing tip - red navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-1.9, 0.0, 0.0),
+            color: Color::srgb(1.0, 0.0, 0.0),
+            intensity: 3.0,
+            size: 0.09,
+        },
+        // Right wing tip - green navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(1.9, 0.0, 0.0),
+            color: Color::srgb(0.0, 1.0, 0.0),
+            intensity: 3.0,
+            size: 0.09,
+        },
+        // Forward white lights
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(-0.3, 0.3, 2.5),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(0.3, 0.3, 2.5),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 2.5,
+            size: 0.07,
+        },
+        // Engine glows
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.6, 0.0, -2.0),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 3.5,
+            size: 0.12,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.6, 0.0, -2.0),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 3.5,
+            size: 0.12,
+        },
+        // Hull accent lights
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.9, 0.2, 1.0),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.9, 0.2, 1.0),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.9, 0.2, -1.0),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.9, 0.2, -1.0),
+            color: base_color,
+            intensity: 2.0,
+            size: 0.06,
+        },
+        // Status lights
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.0, 0.5, 0.5),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 2.5,
+            size: 0.07,
+        },
+    ]
+}
+
+/// Generate lights for frigate ship
+fn generate_frigate_lights(base_color: Color) -> Vec<ShipLightDefinition> {
+    vec![
+        // Left wing tip - red navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-2.4, 0.0, 0.0),
+            color: Color::srgb(1.0, 0.0, 0.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        // Right wing tip - green navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(2.4, 0.0, 0.0),
+            color: Color::srgb(0.0, 1.0, 0.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        // Forward white lights
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(-0.4, 0.9, 3.2),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(0.4, 0.9, 3.2),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.0,
+            size: 0.08,
+        },
+        // Engine glows
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.0, 0.0, -2.8),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 4.0,
+            size: 0.15,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.0, 0.0, -2.8),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 4.0,
+            size: 0.15,
+        },
+        // Hull accent lights along sides
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.3, 0.3, 2.0),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.3, 0.3, 2.0),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.3, 0.3, 0.0),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.3, 0.3, 0.0),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.3, 0.3, -1.5),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.3, 0.3, -1.5),
+            color: base_color,
+            intensity: 2.5,
+            size: 0.07,
+        },
+        // Bridge status lights
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.0, 1.2, 1.5),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 2.5,
+            size: 0.08,
+        },
+        // Weapon mount indicators
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-1.8, -0.3, 1.9),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.0,
+            size: 0.05,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(1.8, -0.3, 1.9),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.0,
+            size: 0.05,
+        },
+    ]
+}
+
+/// Generate lights for capital ship
+fn generate_capital_ship_lights(base_color: Color) -> Vec<ShipLightDefinition> {
+    vec![
+        // Left wing tip - red navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-3.4, 0.0, 0.0),
+            color: Color::srgb(1.0, 0.0, 0.0),
+            intensity: 4.0,
+            size: 0.12,
+        },
+        // Right wing tip - green navigation light
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(3.4, 0.0, 0.0),
+            color: Color::srgb(0.0, 1.0, 0.0),
+            intensity: 4.0,
+            size: 0.12,
+        },
+        // Forward white lights
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(-0.5, 2.0, 1.4),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(0.5, 2.0, 1.4),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.5,
+            size: 0.1,
+        },
+        // Aft white lights
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(-0.8, 0.5, -4.0),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.0,
+            size: 0.09,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::NavigationLight,
+            animation: LightAnimation::Static,
+            position: Vec3::new(0.8, 0.5, -4.0),
+            color: Color::srgb(1.0, 1.0, 1.0),
+            intensity: 3.0,
+            size: 0.09,
+        },
+        // Engine glows (3 engines)
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.5, 0.0, -5.0),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 4.0,
+            size: 0.18,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.5, 0.0, -5.0),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 4.0,
+            size: 0.18,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.0, 0.0, -5.2),
+            color: Color::srgb(0.2, 0.6, 1.0),
+            intensity: 4.0,
+            size: 0.2,
+        },
+        // Hull accent lights - forward
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-1.5, 0.5, 4.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(1.5, 0.5, 4.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        // Hull accent lights - midship
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-2.0, 0.5, 2.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(2.0, 0.5, 2.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-2.0, 0.5, 0.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(2.0, 0.5, 0.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-2.0, 0.5, -2.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::AccentLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(2.0, 0.5, -2.0),
+            color: base_color,
+            intensity: 3.0,
+            size: 0.08,
+        },
+        // Command tower lights
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.0, 2.4, 1.0),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 3.0,
+            size: 0.09,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(-0.7, 1.8, 0.5),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 2.5,
+            size: 0.07,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Pulse,
+            position: Vec3::new(0.7, 1.8, 0.5),
+            color: Color::srgb(0.3, 0.8, 0.3),
+            intensity: 2.5,
+            size: 0.07,
+        },
+        // Weapon mount indicators
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-2.0, -0.5, 3.0),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.5,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(2.0, -0.5, 3.0),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.5,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(-3.5, 0.0, 0.5),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.5,
+            size: 0.06,
+        },
+        ShipLightDefinition {
+            light_type: ShipLightType::StatusLight,
+            animation: LightAnimation::Blink,
+            position: Vec3::new(3.5, 0.0, 0.5),
+            color: Color::srgb(0.8, 0.3, 0.0),
+            intensity: 2.5,
+            size: 0.06,
         },
     ]
 }
