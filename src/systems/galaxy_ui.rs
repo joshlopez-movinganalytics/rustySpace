@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use crate::components::galaxy::*;
 use crate::resources::{Galaxy, GameState};
+use crate::systems::ui_theme::colors;
+use crate::systems::ui_animations::PulseAnimation;
 
 /// Setup galaxy map UI with 3D visualization
 pub fn setup_galaxy_map_ui(
@@ -49,7 +51,7 @@ pub fn setup_galaxy_map_ui(
     spawn_galaxy_map_overlay(&mut commands, &galaxy);
 }
 
-/// Spawn a system node in the galaxy map
+/// Spawn a system node in the galaxy map - CYBERPUNK WITH GLOW
 fn spawn_system_node(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -62,23 +64,24 @@ fn spawn_system_node(
     // Node size based on difficulty
     let size = 5.0 + (system.difficulty as f32 * 0.5);
     
-    // Color based on difficulty and current status
+    // Cyberpunk color scheme based on difficulty and current status
     let color = if is_current {
-        Color::srgb(0.3, 0.6, 1.0) // Bright blue for current
+        colors::NEON_CYAN // Bright cyan for current system
     } else {
-        // Gradient from green (easy) to red (hard)
+        // Neon gradient from green (easy) to magenta (hard)
         let difficulty_ratio = (system.difficulty as f32 / 10.0).clamp(0.0, 1.0);
         Color::srgb(
-            0.2 + difficulty_ratio * 0.6,
-            0.8 - difficulty_ratio * 0.6,
-            0.2,
+            difficulty_ratio * 1.0,        // More red for harder
+            1.0 - difficulty_ratio * 0.5,   // Less green for harder
+            0.3 + difficulty_ratio * 0.5,   // Purple tint
         )
     };
     
     let node_mesh = meshes.add(Sphere::new(size));
     let node_material = materials.add(StandardMaterial {
         base_color: color,
-        emissive: Color::srgb(color.to_srgba().red * 0.5, color.to_srgba().green * 0.5, color.to_srgba().blue * 0.5).into(),
+        emissive: (color.to_linear() * 3.0).into(), // Increased emissive for neon glow
+        unlit: true,
         ..default()
     });
     
@@ -94,13 +97,37 @@ fn spawn_system_node(
         },
     ));
     
-    // Mark current system
+    // Mark current system and add pulsing effect
     if is_current {
         entity_commands.insert(CurrentSystemMarker);
+        
+        // Add outer glow ring for current system
+        let ring_mesh = meshes.add(Torus::new(size * 1.5, size * 0.3));
+        let ring_material = materials.add(StandardMaterial {
+            base_color: colors::NEON_CYAN,
+            emissive: (colors::NEON_CYAN.to_linear() * 4.0).into(),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        
+        commands.spawn((
+            PbrBundle {
+                mesh: ring_mesh,
+                material: ring_material,
+                transform: Transform::from_translation(system.position),
+                ..default()
+            },
+            CurrentSystemRing,
+        ));
     }
 }
 
-/// Spawn a connection line between two systems
+/// Marker for current system ring
+#[derive(Component)]
+pub struct CurrentSystemRing;
+
+/// Spawn a connection line between two systems - NEON ENERGY LINES
 fn spawn_connection_line(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -114,16 +141,17 @@ fn spawn_connection_line(
     let direction = (to - from).normalize();
     let distance = from.distance(to);
     
-    // Create a thin cylinder as the connection line
+    // Create a thin cylinder as the connection line with neon glow
     let line_mesh = meshes.add(Cylinder {
-        radius: 0.5,
+        radius: 0.6,
         half_height: distance / 2.0,
     });
     
     let line_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.4, 0.4, 0.6, 0.6),
-        emissive: Color::srgb(0.1, 0.1, 0.2).into(),
+        base_color: colors::ELECTRIC_PURPLE,
+        emissive: (colors::ELECTRIC_PURPLE.to_linear() * 2.0).into(),
         alpha_mode: AlphaMode::Blend,
+        unlit: true,
         ..default()
     });
     
@@ -150,9 +178,9 @@ fn spawn_connection_line(
     ));
 }
 
-/// Spawn UI overlay for galaxy map
+/// Spawn UI overlay for galaxy map - CYBERPUNK HOLOGRAPHIC
 fn spawn_galaxy_map_overlay(commands: &mut Commands, galaxy: &Galaxy) {
-    // Title and instructions
+    // Title and instructions panel
     commands.spawn((
         NodeBundle {
             style: Style {
@@ -160,53 +188,74 @@ fn spawn_galaxy_map_overlay(commands: &mut Commands, galaxy: &Galaxy) {
                 top: Val::Px(20.0),
                 left: Val::Px(20.0),
                 flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(20.0)),
+                border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
+            background_color: Color::srgba(0.02, 0.0, 0.08, 0.85).into(),
+            border_color: colors::NEON_CYAN.into(),
+            border_radius: BorderRadius::all(Val::Px(4.0)),
             ..default()
         },
         GalaxyMapOverlay,
+        PulseAnimation::new(1.0, colors::NEON_CYAN).with_range(0.75, 1.0),
     )).with_children(|parent| {
-        parent.spawn(TextBundle::from_section(
-            "GALAXY MAP",
-            TextStyle {
-                font_size: 36.0,
-                color: Color::srgb(0.8, 0.9, 1.0),
+        parent.spawn(
+            TextBundle::from_section(
+                "// GALAXY NAV-SYSTEM",
+                TextStyle {
+                    font_size: 32.0,
+                    color: colors::NEON_CYAN,
+                    ..default()
+                },
+            )
+            .with_style(Style {
+                margin: UiRect::bottom(Val::Px(10.0)),
                 ..default()
-            },
+            })
+        );
+        
+        parent.spawn((
+            TextBundle::from_section(
+                format!(">> CURRENT: {}", 
+                        galaxy.current_system()
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("UNKNOWN")),
+                TextStyle {
+                    font_size: 18.0,
+                    color: colors::NEON_GREEN,
+                    ..default()
+                },
+            ),
+            PulseAnimation::new(2.0, colors::NEON_GREEN).with_range(0.7, 1.0),
         ));
         
-        parent.spawn(TextBundle::from_section(
-            format!("Current System: {}", 
-                    galaxy.current_system()
-                        .map(|s| s.name.as_str())
-                        .unwrap_or("Unknown")),
-            TextStyle {
-                font_size: 20.0,
-                color: Color::srgb(0.6, 0.7, 0.8),
+        parent.spawn(
+            TextBundle::from_section(
+                "\n// CONTROLS",
+                TextStyle {
+                    font_size: 16.0,
+                    color: colors::ELECTRIC_PURPLE,
+                    ..default()
+                },
+            )
+            .with_style(Style {
+                margin: UiRect::top(Val::Px(15.0)),
                 ..default()
-            },
-        ));
+            })
+        );
         
         parent.spawn(TextBundle::from_section(
-            "\nControls:",
+            "ROTATE > Mouse Drag\nZOOM    > Scroll\nPAN     > WASD\nEXIT    > ESC / M",
             TextStyle {
-                font_size: 18.0,
+                font_size: 14.0,
                 color: Color::srgb(0.7, 0.8, 0.9),
-                ..default()
-            },
-        ));
-        
-        parent.spawn(TextBundle::from_section(
-            "Mouse Drag - Rotate View\nScroll - Zoom\nWASD - Pan\nESC/M - Close Map",
-            TextStyle {
-                font_size: 16.0,
-                color: Color::srgb(0.5, 0.6, 0.7),
                 ..default()
             },
         ));
     });
     
-    // Legend
+    // Legend panel
     commands.spawn((
         NodeBundle {
             style: Style {
@@ -214,26 +263,38 @@ fn spawn_galaxy_map_overlay(commands: &mut Commands, galaxy: &Galaxy) {
                 bottom: Val::Px(20.0),
                 left: Val::Px(20.0),
                 flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(15.0)),
+                border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
+            background_color: Color::srgba(0.02, 0.0, 0.08, 0.85).into(),
+            border_color: colors::NEON_MAGENTA.into(),
+            border_radius: BorderRadius::all(Val::Px(4.0)),
             ..default()
         },
         GalaxyMapOverlay,
+        PulseAnimation::new(1.2, colors::NEON_MAGENTA).with_range(0.75, 1.0),
     )).with_children(|parent| {
-        parent.spawn(TextBundle::from_section(
-            "Legend:",
-            TextStyle {
-                font_size: 18.0,
-                color: Color::srgb(0.7, 0.8, 0.9),
+        parent.spawn(
+            TextBundle::from_section(
+                "// THREAT ASSESSMENT",
+                TextStyle {
+                    font_size: 16.0,
+                    color: colors::NEON_MAGENTA,
+                    ..default()
+                },
+            )
+            .with_style(Style {
+                margin: UiRect::bottom(Val::Px(8.0)),
                 ..default()
-            },
-        ));
+            })
+        );
         
         parent.spawn(TextBundle::from_section(
-            "Blue - Current System\nGreen - Low Difficulty\nYellow - Medium Difficulty\nRed - High Difficulty",
+            "[●] CYAN    > Current Location\n[●] GREEN   > Low Threat\n[●] YELLOW  > Medium Threat\n[●] MAGENTA > High Threat",
             TextStyle {
-                font_size: 14.0,
-                color: Color::srgb(0.5, 0.6, 0.7),
+                font_size: 13.0,
+                color: Color::srgb(0.7, 0.8, 0.9),
                 ..default()
             },
         ));
@@ -344,6 +405,7 @@ pub fn cleanup_galaxy_map_ui(
     node_query: Query<Entity, With<SystemNode>>,
     connection_query: Query<Entity, With<SystemConnection>>,
     overlay_query: Query<Entity, With<GalaxyMapOverlay>>,
+    ring_query: Query<Entity, With<CurrentSystemRing>>,
 ) {
     println!("[Galaxy UI] Cleaning up galaxy map");
     
@@ -362,9 +424,24 @@ pub fn cleanup_galaxy_map_ui(
         commands.entity(entity).despawn_recursive();
     }
     
+    // Despawn rings
+    for entity in ring_query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    
     // Despawn overlay UI
     for entity in overlay_query.iter() {
         commands.entity(entity).despawn_recursive();
+    }
+}
+
+/// Animate current system ring (rotation)
+pub fn animate_current_system_ring(
+    time: Res<Time>,
+    mut query: Query<&mut Transform, With<CurrentSystemRing>>,
+) {
+    for mut transform in query.iter_mut() {
+        transform.rotate_y(time.delta_seconds() * 0.5);
     }
 }
 

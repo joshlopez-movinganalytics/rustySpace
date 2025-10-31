@@ -5,6 +5,8 @@ use crate::components::resources::Inventory;
 use crate::components::upgrades::{PlayerUpgrades, UpgradeType, UpgradeCategory};
 use crate::resources::{GameState, Galaxy};
 use crate::systems::save_load;
+use crate::systems::ui_theme::{colors, borders, PanelConfig};
+use crate::systems::ui_animations::{PulseAnimation, GlitchEffect};
 
 /// HUD root marker
 #[derive(Component)]
@@ -50,6 +52,18 @@ pub struct ChargeBar;
 #[derive(Component)]
 pub struct ReloadIndicator;
 
+/// Health percentage text marker
+#[derive(Component)]
+pub struct HealthPercentText;
+
+/// Shield percentage text marker
+#[derive(Component)]
+pub struct ShieldPercentText;
+
+/// Energy percentage text marker
+#[derive(Component)]
+pub struct EnergyPercentText;
+
 /// Resource text marker
 #[derive(Component)]
 pub struct ResourceText {
@@ -78,13 +92,35 @@ pub struct ReticuleCenter;
 #[derive(Component)]
 pub struct ReticuleCircle;
 
+/// Reticule corner brackets (rotating elements)
+#[derive(Component)]
+pub struct ReticuleCorner {
+    pub corner_index: usize,
+}
+
 /// Lead indicator marker (shows where to aim for moving targets)
 #[derive(Component)]
 pub struct LeadIndicator;
 
-/// Setup targeting reticule (follows where bullets will go)
+/// FPS display marker
+#[derive(Component)]
+pub struct FpsText;
+
+/// Frame time display marker
+#[derive(Component)]
+pub struct FrameTimeText;
+
+/// Performance monitor root
+#[derive(Component)]
+pub struct PerformanceMonitor;
+
+/// Autofire status text marker
+#[derive(Component)]
+pub struct AutofireStatusText;
+
+/// Setup targeting reticule - HOLOGRAPHIC CYBERPUNK VERSION
 pub fn setup_targeting_reticule(mut commands: Commands) {
-    println!("[UI System] Setting up targeting reticule");
+    println!("[UI System] Setting up holographic targeting reticule");
     
     // Create reticule as an absolutely positioned container
     commands.spawn((
@@ -93,8 +129,8 @@ pub fn setup_targeting_reticule(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
-                width: Val::Px(30.0),
-                height: Val::Px(30.0),
+                width: Val::Px(50.0),
+                height: Val::Px(50.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -105,12 +141,12 @@ pub fn setup_targeting_reticule(mut commands: Commands) {
         },
         TargetingReticule,
     )).with_children(|parent| {
-        // Circle
+        // Outer circle with pulsing effect
         parent.spawn((
             NodeBundle {
                 style: Style {
-                    width: Val::Px(30.0),
-                    height: Val::Px(30.0),
+                    width: Val::Px(50.0),
+                    height: Val::Px(50.0),
                     border: UiRect::all(Val::Px(2.0)),
                     position_type: PositionType::Absolute,
                     left: Val::Px(0.0),
@@ -118,49 +154,132 @@ pub fn setup_targeting_reticule(mut commands: Commands) {
                     ..default()
                 },
                 background_color: Color::NONE.into(),
-                border_color: Color::srgb(0.8, 1.0, 0.8).into(),
-                border_radius: BorderRadius::all(Val::Px(15.0)),
+                border_color: colors::NEON_GREEN.into(),
+                border_radius: BorderRadius::all(Val::Px(25.0)),
                 ..default()
             },
             ReticuleCircle,
+            PulseAnimation::new(2.0, colors::NEON_GREEN).with_range(0.6, 1.0),
         ));
         
-        // Center dot (centered within parent)
+        // Inner circle
+        parent.spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(30.0),
+                height: Val::Px(30.0),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                left: Val::Px(10.0),
+                top: Val::Px(10.0),
+                ..default()
+            },
+            background_color: Color::NONE.into(),
+            border_color: Color::srgba(0.0, 1.0, 0.3, 0.4).into(),
+            border_radius: BorderRadius::all(Val::Px(15.0)),
+            ..default()
+        });
+        
+        // Corner brackets (4 corners)
+        let corner_size = 12.0;
+        let offset = -6.0;
+        let corners = [
+            (offset, offset),           // Top-left
+            (50.0 - corner_size + 6.0, offset),           // Top-right
+            (offset, 50.0 - corner_size + 6.0),           // Bottom-left
+            (50.0 - corner_size + 6.0, 50.0 - corner_size + 6.0), // Bottom-right
+        ];
+        
+        for (i, (x, y)) in corners.iter().enumerate() {
+            parent.spawn((
+                NodeBundle {
+                    style: Style {
+                        width: Val::Px(corner_size),
+                        height: Val::Px(corner_size),
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(*x),
+                        top: Val::Px(*y),
+                        border: UiRect {
+                            left: if i % 2 == 0 { Val::Px(2.0) } else { Val::Px(0.0) },
+                            right: if i % 2 == 1 { Val::Px(2.0) } else { Val::Px(0.0) },
+                            top: if i < 2 { Val::Px(2.0) } else { Val::Px(0.0) },
+                            bottom: if i >= 2 { Val::Px(2.0) } else { Val::Px(0.0) },
+                        },
+                        ..default()
+                    },
+                    background_color: Color::NONE.into(),
+                    border_color: colors::NEON_CYAN.into(),
+                    ..default()
+                },
+                ReticuleCorner { corner_index: i },
+            ));
+        }
+        
+        // Horizontal line
+        parent.spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(20.0),
+                height: Val::Px(2.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(15.0),
+                top: Val::Px(24.0),
+                ..default()
+            },
+            background_color: colors::NEON_GREEN.into(),
+            ..default()
+        });
+        
+        // Vertical line
+        parent.spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(2.0),
+                height: Val::Px(20.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(24.0),
+                top: Val::Px(15.0),
+                ..default()
+            },
+            background_color: colors::NEON_GREEN.into(),
+            ..default()
+        });
+        
+        // Center dot (pulsing)
         parent.spawn((
             NodeBundle {
                 style: Style {
-                    width: Val::Px(4.0),
-                    height: Val::Px(4.0),
+                    width: Val::Px(6.0),
+                    height: Val::Px(6.0),
                     position_type: PositionType::Relative,
                     ..default()
                 },
-                background_color: Color::WHITE.into(),
-                border_radius: BorderRadius::all(Val::Px(2.0)),
+                background_color: colors::NEON_CYAN.into(),
+                border_radius: BorderRadius::all(Val::Px(3.0)),
                 ..default()
             },
             ReticuleCenter,
+            PulseAnimation::new(3.0, colors::NEON_CYAN).with_range(0.7, 1.0),
         ));
     });
     
-    // Create lead indicator (separate from main reticule)
+    // Create lead indicator (separate from main reticule) - Enhanced
     commands.spawn((
         NodeBundle {
             style: Style {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
-                width: Val::Px(20.0),
-                height: Val::Px(20.0),
+                width: Val::Px(24.0),
+                height: Val::Px(24.0),
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
             z_index: ZIndex::Global(99),
             background_color: Color::NONE.into(),
-            border_color: Color::srgba(1.0, 0.5, 0.0, 0.8).into(),
+            border_color: colors::NEON_ORANGE.into(),
             visibility: Visibility::Hidden, // Hidden by default
             ..default()
         },
         LeadIndicator,
+        PulseAnimation::new(4.0, colors::NEON_ORANGE).with_range(0.5, 1.0),
     ));
 }
 
@@ -185,14 +304,15 @@ pub fn cleanup_targeting_reticule(
 /// Update weapon status HUD system
 pub fn update_weapon_hud_system(
     mut commands: Commands,
-    player_query: Query<&WeaponMount, With<Player>>,
+    player_query: Query<(&WeaponMount, &crate::components::combat::AutofireController), With<Player>>,
     mut weapon_name_query: Query<&mut Text, With<WeaponNameText>>,
     mut heat_bar_query: Query<Entity, With<HeatBar>>,
-    mut ammo_text_query: Query<&mut Text, (With<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>)>,
+    mut ammo_text_query: Query<&mut Text, (With<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>, Without<AutofireStatusText>)>,
     mut charge_bar_query: Query<Entity, With<ChargeBar>>,
-    mut reload_text_query: Query<&mut Text, (With<ReloadIndicator>, Without<AmmoText>, Without<WeaponNameText>)>,
+    mut reload_text_query: Query<&mut Text, (With<ReloadIndicator>, Without<AmmoText>, Without<WeaponNameText>, Without<AutofireStatusText>)>,
+    mut autofire_text_query: Query<&mut Text, (With<AutofireStatusText>, Without<AmmoText>, Without<WeaponNameText>, Without<ReloadIndicator>)>,
 ) {
-    if let Ok(weapon_mount) = player_query.get_single() {
+    if let Ok((weapon_mount, autofire)) = player_query.get_single() {
         if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
             // Update weapon name
             for mut text in weapon_name_query.iter_mut() {
@@ -206,7 +326,7 @@ pub fn update_weapon_hud_system(
                     crate::components::combat::WeaponType::FlakCannon => "FLAK CANNON",
                     crate::components::combat::WeaponType::BeamLaser => "BEAM LASER",
                 };
-                text.sections[0].value = format!("WEAPON: {}", weapon_name);
+                text.sections[0].value = format!(">> WEAPON: {}", weapon_name);
             }
             
             // Update heat bar
@@ -227,18 +347,18 @@ pub fn update_weapon_hud_system(
             // Update ammo text
             for mut text in ammo_text_query.iter_mut() {
                 if weapon.max_ammo > 0 {
-                    text.sections[0].value = format!("AMMO: {}/{}", weapon.current_ammo, weapon.reserve_ammo);
+                    text.sections[0].value = format!("[ AMMO: {}/{} ]", weapon.current_ammo, weapon.reserve_ammo);
                     // Color based on ammo status
                     if weapon.current_ammo == 0 {
-                        text.sections[0].style.color = Color::srgb(1.0, 0.2, 0.2);
+                        text.sections[0].style.color = colors::DANGER_COLOR;
                     } else if weapon.current_ammo < weapon.max_ammo / 4 {
-                        text.sections[0].style.color = Color::srgb(1.0, 0.8, 0.2);
+                        text.sections[0].style.color = colors::WARNING_COLOR;
                     } else {
-                        text.sections[0].style.color = Color::WHITE;
+                        text.sections[0].style.color = Color::srgb(0.9, 0.9, 1.0);
                     }
                 } else {
-                    text.sections[0].value = "AMMO: ∞".to_string();
-                    text.sections[0].style.color = Color::srgb(0.7, 0.7, 0.7);
+                    text.sections[0].value = "[ AMMO: ∞ ]".to_string();
+                    text.sections[0].style.color = Color::srgb(0.7, 0.7, 0.8);
                 }
             }
             
@@ -268,6 +388,21 @@ pub fn update_weapon_hud_system(
                 }
             }
         }
+        
+        // Update autofire status (outside weapon check since it's independent)
+        for mut text in autofire_text_query.iter_mut() {
+            if autofire.enabled {
+                if autofire.current_target.is_some() {
+                    text.sections[0].value = "⟨⟨ AUTOFIRE: LOCKED ⟩⟩".to_string();
+                    text.sections[0].style.color = colors::NEON_CYAN;
+                } else {
+                    text.sections[0].value = "⟨⟨ AUTOFIRE: SEARCHING ⟩⟩".to_string();
+                    text.sections[0].style.color = colors::NEON_YELLOW;
+                }
+            } else {
+                text.sections[0].value = "".to_string();
+            }
+        }
     }
 }
 
@@ -280,7 +415,10 @@ pub fn update_hud_system(
     health_bar_query: Query<Entity, With<HealthBar>>,
     shield_bar_query: Query<Entity, With<ShieldBar>>,
     energy_bar_query: Query<Entity, With<EnergyBar>>,
-    mut resource_text_query: Query<(&mut Text, &ResourceText)>,
+    mut health_percent_query: Query<&mut Text, (With<HealthPercentText>, Without<ShieldPercentText>, Without<EnergyPercentText>)>,
+    mut shield_percent_query: Query<&mut Text, (With<ShieldPercentText>, Without<HealthPercentText>, Without<EnergyPercentText>)>,
+    mut energy_percent_query: Query<&mut Text, (With<EnergyPercentText>, Without<HealthPercentText>, Without<ShieldPercentText>)>,
+    mut resource_text_query: Query<(&mut Text, &ResourceText), (Without<HealthPercentText>, Without<ShieldPercentText>, Without<EnergyPercentText>)>,
 ) {
     // Create HUD if it doesn't exist
     if hud_query.is_empty() {
@@ -293,9 +431,15 @@ pub fn update_hud_system(
             let health_percent = (health.current / health.max).clamp(0.0, 1.0);
             commands.entity(entity).insert(Style {
                 width: Val::Percent(health_percent * 100.0),
-                height: Val::Px(20.0),
+                height: Val::Percent(100.0),
                 ..default()
             });
+        }
+        
+        // Update health percentage text
+        for mut text in health_percent_query.iter_mut() {
+            let health_percent = ((health.current / health.max).clamp(0.0, 1.0) * 100.0) as u32;
+            text.sections[0].value = format!("{}%", health_percent);
         }
         
         // Update shield bar
@@ -303,9 +447,15 @@ pub fn update_hud_system(
             let shield_percent = (shield.current / shield.max).clamp(0.0, 1.0);
             commands.entity(entity).insert(Style {
                 width: Val::Percent(shield_percent * 100.0),
-                height: Val::Px(20.0),
+                height: Val::Percent(100.0),
                 ..default()
             });
+        }
+        
+        // Update shield percentage text
+        for mut text in shield_percent_query.iter_mut() {
+            let shield_percent = ((shield.current / shield.max).clamp(0.0, 1.0) * 100.0) as u32;
+            text.sections[0].value = format!("{}%", shield_percent);
         }
         
         // Update energy bar
@@ -313,9 +463,15 @@ pub fn update_hud_system(
             let energy_percent = (energy.current / energy.max).clamp(0.0, 1.0);
             commands.entity(entity).insert(Style {
                 width: Val::Percent(energy_percent * 100.0),
-                height: Val::Px(20.0),
+                height: Val::Percent(100.0),
                 ..default()
             });
+        }
+        
+        // Update energy percentage text
+        for mut text in energy_percent_query.iter_mut() {
+            let energy_percent = ((energy.current / energy.max).clamp(0.0, 1.0) * 100.0) as u32;
+            text.sections[0].value = format!("{}%", energy_percent);
         }
         
         if inventory.is_changed() {
@@ -331,13 +487,106 @@ pub fn update_hud_system(
     // Update resource text displays
     for (mut text, resource_text) in resource_text_query.iter_mut() {
         use crate::components::resources::ResourceType;
-        let (name, value) = match resource_text.resource_type {
-            ResourceType::ScrapMetal => ("SCRAP", inventory.scrap_metal),
-            ResourceType::EnergyCores => ("CORES", inventory.energy_cores),
-            ResourceType::RareMinerals => ("MINERALS", inventory.rare_minerals),
-            ResourceType::TechComponents => ("TECH", inventory.tech_components),
+        let (icon, name, value) = match resource_text.resource_type {
+            ResourceType::ScrapMetal => ("[■]", "SCRAP", inventory.scrap_metal),
+            ResourceType::EnergyCores => ("[●]", "CORES", inventory.energy_cores),
+            ResourceType::RareMinerals => ("[◆]", "MINERALS", inventory.rare_minerals),
+            ResourceType::TechComponents => ("[▲]", "TECH", inventory.tech_components),
         };
-        text.sections[0].value = format!("{}: {}", name, value);
+        text.sections[0].value = format!("{} {}: {}", icon, name, value);
+    }
+}
+
+/// Setup performance monitor widget at top left
+pub fn setup_performance_monitor(mut commands: Commands) {
+    println!("[UI System] Setting up performance monitor");
+    
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(20.0),
+                    top: Val::Px(20.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(3.0),
+                    padding: UiRect::all(Val::Px(8.0)),
+                    ..default()
+                },
+                background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                border_color: colors::NEON_CYAN.into(),
+                ..default()
+            },
+            PerformanceMonitor,
+        ))
+        .with_children(|parent| {
+            // FPS text
+            parent.spawn((
+                TextBundle::from_section(
+                    "FPS: --",
+                    TextStyle {
+                        font_size: 16.0,
+                        color: colors::NEON_CYAN,
+                        ..default()
+                    },
+                ),
+                FpsText,
+            ));
+            
+            // Frame time text
+            parent.spawn((
+                TextBundle::from_section(
+                    "MS: --",
+                    TextStyle {
+                        font_size: 14.0,
+                        color: Color::srgb(0.7, 0.7, 0.8),
+                        ..default()
+                    },
+                ),
+                FrameTimeText,
+            ));
+        });
+}
+
+/// Update performance monitor with current FPS and frame time
+pub fn update_performance_monitor(
+    commands: Commands,
+    time: Res<Time>,
+    monitor_query: Query<Entity, With<PerformanceMonitor>>,
+    mut fps_query: Query<&mut Text, (With<FpsText>, Without<FrameTimeText>)>,
+    mut frame_time_query: Query<&mut Text, (With<FrameTimeText>, Without<FpsText>)>,
+) {
+    // Create performance monitor if it doesn't exist
+    if monitor_query.is_empty() {
+        setup_performance_monitor(commands);
+        return;
+    }
+    
+    // Calculate FPS and frame time
+    let delta = time.delta_seconds();
+    let fps = if delta > 0.0 { 1.0 / delta } else { 0.0 };
+    let frame_time_ms = delta * 1000.0;
+    
+    // Update FPS text with color coding
+    for mut text in fps_query.iter_mut() {
+        let fps_rounded = fps.round() as u32;
+        
+        // Color based on FPS performance
+        let color = if fps >= 60.0 {
+            colors::NEON_CYAN // Good performance
+        } else if fps >= 30.0 {
+            Color::srgb(1.0, 1.0, 0.0) // Warning - yellow
+        } else {
+            Color::srgb(1.0, 0.0, 0.0) // Poor performance - red
+        };
+        
+        text.sections[0].value = format!("FPS: {}", fps_rounded);
+        text.sections[0].style.color = color;
+    }
+    
+    // Update frame time text
+    for mut text in frame_time_query.iter_mut() {
+        text.sections[0].value = format!("MS: {:.1}", frame_time_ms);
     }
 }
 
@@ -348,9 +597,9 @@ fn setup_hud(commands: &mut Commands) {
                 style: Style {
                     position_type: PositionType::Absolute,
                     left: Val::Px(20.0),
-                    top: Val::Px(20.0),
+                    top: Val::Px(100.0), // Moved down to make space for performance monitor
                     flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(10.0),
+                    row_gap: Val::Px(12.0),
                     ..default()
                 },
                 ..default()
@@ -358,7 +607,7 @@ fn setup_hud(commands: &mut Commands) {
             HudRoot,
         ))
         .with_children(|parent| {
-            // Health bar container
+            // Health bar container - CYBERPUNK STYLE
             parent.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
@@ -367,45 +616,65 @@ fn setup_hud(commands: &mut Commands) {
                 },
                 ..default()
             }).with_children(|parent| {
-                // Health label
+                // Health label with neon glow
                 parent.spawn(TextBundle::from_section(
-                    "HULL",
+                    "// HULL INTEGRITY",
                     TextStyle {
-                        font_size: 16.0,
-                        color: Color::WHITE,
+                        font_size: 14.0,
+                        color: colors::HEALTH_COLOR,
                         ..default()
                     },
                 ));
                 
-                // Health bar background
+                // Health bar background - hollow design
                 parent.spawn(NodeBundle {
                     style: Style {
-                        width: Val::Px(200.0),
-                        height: Val::Px(20.0),
-                        border: UiRect::all(Val::Px(2.0)),
+                        width: Val::Px(220.0),
+                        height: Val::Px(24.0),
+                        border: borders::THICK_BORDER,
+                        position_type: PositionType::Relative,
                         ..default()
                     },
-                    background_color: Color::srgb(0.2, 0.2, 0.2).into(),
-                    border_color: Color::srgb(0.5, 0.5, 0.5).into(),
+                    background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                    border_color: colors::HEALTH_COLOR.into(),
+                    border_radius: BorderRadius::all(Val::Px(2.0)),
                     ..default()
                 }).with_children(|parent| {
-                    // Health bar fill
+                    // Health bar fill with glow
                     parent.spawn((
                         NodeBundle {
                             style: Style {
                                 width: Val::Percent(100.0),
-                                height: Val::Px(20.0),
+                                height: Val::Percent(100.0),
                                 ..default()
                             },
-                            background_color: Color::srgb(0.8, 0.2, 0.2).into(),
+                            background_color: colors::HEALTH_COLOR.into(),
                             ..default()
                         },
                         HealthBar,
                     ));
+                    
+                    // Percentage text overlay
+                    parent.spawn((
+                        TextBundle::from_section(
+                            "100%",
+                            TextStyle {
+                                font_size: 14.0,
+                                color: Color::WHITE,
+                                ..default()
+                            },
+                        ).with_style(Style {
+                            position_type: PositionType::Absolute,
+                            left: Val::Percent(50.0),
+                            top: Val::Percent(50.0),
+                            ..default()
+                        }),
+                        HealthPercentText,
+                    ));
                 });
             });
             
-            // Shield bar container
+            // Shield bar container - CYBERPUNK STYLE
             parent.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
@@ -414,115 +683,164 @@ fn setup_hud(commands: &mut Commands) {
                 },
                 ..default()
             }).with_children(|parent| {
-                // Shield label
+                // Shield label with neon glow
                 parent.spawn(TextBundle::from_section(
-                    "SHIELDS",
+                    "// SHIELD MATRIX",
                     TextStyle {
-                        font_size: 16.0,
-                        color: Color::WHITE,
+                        font_size: 14.0,
+                        color: colors::SHIELD_COLOR,
                         ..default()
                     },
                 ));
                 
-                // Shield bar background
-                parent.spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Px(200.0),
-                        height: Val::Px(20.0),
-                        border: UiRect::all(Val::Px(2.0)),
+                // Shield bar background - hollow design with pulse
+                parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            width: Val::Px(220.0),
+                            height: Val::Px(24.0),
+                            border: borders::THICK_BORDER,
+                            position_type: PositionType::Relative,
+                            ..default()
+                        },
+                        background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                        border_color: colors::SHIELD_COLOR.into(),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         ..default()
                     },
-                    background_color: Color::srgb(0.2, 0.2, 0.2).into(),
-                    border_color: Color::srgb(0.5, 0.5, 0.5).into(),
-                    ..default()
-                }).with_children(|parent| {
-                    // Shield bar fill
+                    PulseAnimation::new(1.5, colors::SHIELD_COLOR).with_range(0.7, 1.0),
+                )).with_children(|parent| {
+                    // Shield bar fill with glow
                     parent.spawn((
                         NodeBundle {
                             style: Style {
                                 width: Val::Percent(100.0),
-                                height: Val::Px(20.0),
+                                height: Val::Percent(100.0),
                                 ..default()
                             },
-                            background_color: Color::srgb(0.2, 0.5, 1.0).into(),
+                            background_color: colors::SHIELD_COLOR.into(),
                             ..default()
                         },
                         ShieldBar,
                     ));
-                });
-            });
-            
-            // Energy bar container
-            parent.spawn(NodeBundle {
-                style: Style {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(5.0),
-                    ..default()
-                },
-                ..default()
-            }).with_children(|parent| {
-                // Energy label
-                parent.spawn(TextBundle::from_section(
-                    "ENERGY",
-                    TextStyle {
-                        font_size: 16.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                ));
-                
-                // Energy bar background
-                parent.spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Px(200.0),
-                        height: Val::Px(20.0),
-                        border: UiRect::all(Val::Px(2.0)),
-                        ..default()
-                    },
-                    background_color: Color::srgb(0.2, 0.2, 0.2).into(),
-                    border_color: Color::srgb(0.5, 0.5, 0.5).into(),
-                    ..default()
-                }).with_children(|parent| {
-                    // Energy bar fill
+                    
+                    // Percentage text overlay
                     parent.spawn((
-                        NodeBundle {
-                            style: Style {
-                                width: Val::Percent(100.0),
-                                height: Val::Px(20.0),
+                        TextBundle::from_section(
+                            "100%",
+                            TextStyle {
+                                font_size: 14.0,
+                                color: Color::WHITE,
                                 ..default()
                             },
-                            background_color: Color::srgb(0.2, 0.8, 0.3).into(),
+                        ).with_style(Style {
+                            position_type: PositionType::Absolute,
+                            left: Val::Percent(50.0),
+                            top: Val::Percent(50.0),
                             ..default()
-                        },
-                        EnergyBar,
+                        }),
+                        ShieldPercentText,
                     ));
                 });
             });
             
-            // Weapon status section
+            // Energy bar container - CYBERPUNK STYLE
             parent.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(5.0),
-                    margin: UiRect::top(Val::Px(15.0)),
                     ..default()
                 },
                 ..default()
             }).with_children(|parent| {
-                // Weapon name
+                // Energy label with neon glow
+                parent.spawn(TextBundle::from_section(
+                    "// POWER CORE",
+                    TextStyle {
+                        font_size: 14.0,
+                        color: colors::ENERGY_COLOR,
+                        ..default()
+                    },
+                ));
+                
+                // Energy bar background - hollow design
+                parent.spawn(NodeBundle {
+                    style: Style {
+                        width: Val::Px(220.0),
+                        height: Val::Px(24.0),
+                        border: borders::THICK_BORDER,
+                        position_type: PositionType::Relative,
+                        ..default()
+                    },
+                    background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                    border_color: colors::ENERGY_COLOR.into(),
+                    border_radius: BorderRadius::all(Val::Px(2.0)),
+                    ..default()
+                }).with_children(|parent| {
+                    // Energy bar fill with glow
+                    parent.spawn((
+                        NodeBundle {
+                            style: Style {
+                                width: Val::Percent(100.0),
+                                height: Val::Percent(100.0),
+                                ..default()
+                            },
+                            background_color: colors::ENERGY_COLOR.into(),
+                            ..default()
+                        },
+                        EnergyBar,
+                    ));
+                    
+                    // Percentage text overlay
+                    parent.spawn((
+                        TextBundle::from_section(
+                            "100%",
+                            TextStyle {
+                                font_size: 14.0,
+                                color: Color::srgb(0.0, 0.0, 0.0),
+                                ..default()
+                            },
+                        ).with_style(Style {
+                            position_type: PositionType::Absolute,
+                            left: Val::Percent(50.0),
+                            top: Val::Percent(50.0),
+                            ..default()
+                        }),
+                        EnergyPercentText,
+                    ));
+                });
+            });
+            
+            // Weapon status section - CYBERPUNK STYLE
+            parent.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(8.0),
+                    margin: UiRect::top(Val::Px(20.0)),
+                    ..default()
+                },
+                ..default()
+            }).with_children(|parent| {
+                // Weapon name with glitch effect
                 parent.spawn((
                     TextBundle::from_section(
-                        "WEAPON: LASER",
+                        ">> WEAPON: LASER",
                         TextStyle {
-                            font_size: 16.0,
-                            color: Color::WHITE,
+                            font_size: 15.0,
+                            color: colors::NEON_ORANGE,
                             ..default()
                         },
                     ),
                     WeaponNameText,
+                    GlitchEffect {
+                        interval: 5.0,
+                        duration: 0.08,
+                        intensity: 0.5,
+                        ..default()
+                    },
                 ));
                 
-                // Heat bar (for lasers)
+                // Heat bar (for lasers) - CYBERPUNK
                 parent.spawn(NodeBundle {
                     style: Style {
                         flex_direction: FlexDirection::Column,
@@ -532,33 +850,34 @@ fn setup_hud(commands: &mut Commands) {
                     ..default()
                 }).with_children(|parent| {
                     parent.spawn(TextBundle::from_section(
-                        "HEAT",
+                        "// HEAT LEVEL",
                         TextStyle {
-                            font_size: 12.0,
-                            color: Color::srgb(0.8, 0.8, 0.8),
+                            font_size: 11.0,
+                            color: Color::srgb(0.7, 0.7, 0.8),
                             ..default()
                         },
                     ));
                     
                     parent.spawn(NodeBundle {
                         style: Style {
-                            width: Val::Px(200.0),
-                            height: Val::Px(15.0),
+                            width: Val::Px(220.0),
+                            height: Val::Px(16.0),
                             border: UiRect::all(Val::Px(2.0)),
                             ..default()
                         },
-                        background_color: Color::srgb(0.2, 0.2, 0.2).into(),
-                        border_color: Color::srgb(0.5, 0.5, 0.5).into(),
+                        background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                        border_color: colors::NEON_ORANGE.into(),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         ..default()
                     }).with_children(|parent| {
                         parent.spawn((
                             NodeBundle {
                                 style: Style {
                                     width: Val::Percent(0.0),
-                                    height: Val::Px(15.0),
+                                    height: Val::Percent(100.0),
                                     ..default()
                                 },
-                                background_color: Color::srgb(1.0, 0.4, 0.2).into(),
+                                background_color: colors::NEON_ORANGE.into(),
                                 ..default()
                             },
                             HeatBar,
@@ -566,20 +885,20 @@ fn setup_hud(commands: &mut Commands) {
                     });
                 });
                 
-                // Ammo display
+                // Ammo display - CYBERPUNK
                 parent.spawn((
                     TextBundle::from_section(
-                        "AMMO: --/--",
+                        "[ AMMO: --/-- ]",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::WHITE,
+                            font_size: 13.0,
+                            color: Color::srgb(0.9, 0.9, 1.0),
                             ..default()
                         },
                     ),
                     AmmoText,
                 ));
                 
-                // Charge bar (for plasma)
+                // Charge bar (for plasma) - CYBERPUNK
                 parent.spawn(NodeBundle {
                     style: Style {
                         flex_direction: FlexDirection::Column,
@@ -589,33 +908,34 @@ fn setup_hud(commands: &mut Commands) {
                     ..default()
                 }).with_children(|parent| {
                     parent.spawn(TextBundle::from_section(
-                        "CHARGE",
+                        "// CHARGE STATUS",
                         TextStyle {
-                            font_size: 12.0,
-                            color: Color::srgb(0.8, 0.8, 0.8),
+                            font_size: 11.0,
+                            color: Color::srgb(0.7, 0.7, 0.8),
                             ..default()
                         },
                     ));
                     
                     parent.spawn(NodeBundle {
                         style: Style {
-                            width: Val::Px(200.0),
-                            height: Val::Px(15.0),
+                            width: Val::Px(220.0),
+                            height: Val::Px(16.0),
                             border: UiRect::all(Val::Px(2.0)),
                             ..default()
                         },
-                        background_color: Color::srgb(0.2, 0.2, 0.2).into(),
-                        border_color: Color::srgb(0.5, 0.5, 0.5).into(),
+                        background_color: Color::srgba(0.0, 0.0, 0.0, 0.7).into(),
+                        border_color: colors::NEON_GREEN.into(),
+                        border_radius: BorderRadius::all(Val::Px(2.0)),
                         ..default()
                     }).with_children(|parent| {
                         parent.spawn((
                             NodeBundle {
                                 style: Style {
                                     width: Val::Percent(0.0),
-                                    height: Val::Px(15.0),
+                                    height: Val::Percent(100.0),
                                     ..default()
                                 },
-                                background_color: Color::srgb(0.2, 1.0, 0.4).into(),
+                                background_color: colors::NEON_GREEN.into(),
                                 ..default()
                             },
                             ChargeBar,
@@ -623,78 +943,101 @@ fn setup_hud(commands: &mut Commands) {
                     });
                 });
                 
-                // Reload indicator
+                // Reload indicator - CYBERPUNK
                 parent.spawn((
                     TextBundle::from_section(
                         "",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::srgb(1.0, 0.8, 0.2),
+                            font_size: 13.0,
+                            color: colors::NEON_YELLOW,
                             ..default()
                         },
                     ),
                     ReloadIndicator,
                 ));
+                
+                // Autofire status indicator - CYBERPUNK
+                parent.spawn((
+                    TextBundle::from_section(
+                        "",
+                        TextStyle {
+                            font_size: 13.0,
+                            color: colors::NEON_CYAN,
+                            ..default()
+                        },
+                    ),
+                    AutofireStatusText,
+                    PulseAnimation::new(1.0, colors::NEON_CYAN).with_range(0.8, 1.0),
+                ));
             });
             
-            // Resource display section
+            // Resource display section - CYBERPUNK CHIPS
             parent.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(5.0),
-                    margin: UiRect::top(Val::Px(15.0)),
+                    row_gap: Val::Px(6.0),
+                    margin: UiRect::top(Val::Px(20.0)),
                     ..default()
                 },
                 ..default()
             }).with_children(|parent| {
                 use crate::components::resources::ResourceType;
                 
-                // Scrap Metal
+                parent.spawn(TextBundle::from_section(
+                    "// INVENTORY",
+                    TextStyle {
+                        font_size: 12.0,
+                        color: Color::srgb(0.6, 0.7, 0.8),
+                        ..default()
+                    },
+                ));
+                
+                // Scrap Metal - CYBERPUNK CHIP
                 parent.spawn((
                     TextBundle::from_section(
-                        "SCRAP: 0",
+                        "[■] SCRAP: 0",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::srgb(0.7, 0.7, 0.7),
+                            font_size: 13.0,
+                            color: colors::SCRAP_COLOR,
                             ..default()
                         },
                     ),
                     ResourceText { resource_type: ResourceType::ScrapMetal },
                 ));
                 
-                // Energy Cores
+                // Energy Cores - CYBERPUNK CHIP
                 parent.spawn((
                     TextBundle::from_section(
-                        "CORES: 0",
+                        "[●] CORES: 0",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::srgb(0.2, 0.8, 1.0),
+                            font_size: 13.0,
+                            color: colors::ENERGY_CORE_COLOR,
                             ..default()
                         },
                     ),
                     ResourceText { resource_type: ResourceType::EnergyCores },
                 ));
                 
-                // Rare Minerals
+                // Rare Minerals - CYBERPUNK CHIP
                 parent.spawn((
                     TextBundle::from_section(
-                        "MINERALS: 0",
+                        "[◆] MINERALS: 0",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::srgb(0.8, 0.2, 0.8),
+                            font_size: 13.0,
+                            color: colors::MINERAL_COLOR,
                             ..default()
                         },
                     ),
                     ResourceText { resource_type: ResourceType::RareMinerals },
                 ));
                 
-                // Tech Components
+                // Tech Components - CYBERPUNK CHIP
                 parent.spawn((
                     TextBundle::from_section(
-                        "TECH: 0",
+                        "[▲] TECH: 0",
                         TextStyle {
-                            font_size: 14.0,
-                            color: Color::srgb(1.0, 0.8, 0.2),
+                            font_size: 13.0,
+                            color: colors::TECH_COLOR,
                             ..default()
                         },
                     ),
@@ -702,19 +1045,19 @@ fn setup_hud(commands: &mut Commands) {
                 ));
             });
             
-            // Upgrade notification
+            // Upgrade notification - CYBERPUNK with PULSE
             parent.spawn((
                 TextBundle {
                     text: Text::from_section(
-                        "⚡ UPGRADES AVAILABLE (U)",
+                        ">> UPGRADES AVAILABLE (U)",
                         TextStyle {
-                            font_size: 16.0,
-                            color: Color::srgb(1.0, 0.8, 0.2),
+                            font_size: 15.0,
+                            color: colors::NEON_YELLOW,
                             ..default()
                         },
                     ),
                     style: Style {
-                        margin: UiRect::top(Val::Px(20.0)),
+                        margin: UiRect::top(Val::Px(25.0)),
                         ..default()
                     },
                     visibility: Visibility::Hidden,
@@ -730,7 +1073,7 @@ fn setup_hud(commands: &mut Commands) {
 #[derive(Component)]
 pub struct MainMenuRoot;
 
-/// Setup main menu
+/// Setup main menu - CYBERPUNK REDESIGN
 pub fn setup_main_menu(mut commands: Commands) {
     commands
         .spawn((
@@ -743,18 +1086,19 @@ pub fn setup_main_menu(mut commands: Commands) {
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
-                background_color: Color::srgb(0.0, 0.0, 0.1).into(),
+                background_color: Color::srgb(0.02, 0.0, 0.08).into(),
                 ..default()
             },
             MainMenuRoot,
         ))
         .with_children(|parent| {
-            parent.spawn(
+            // Cyberpunk title with glitch effect
+            parent.spawn((
                 TextBundle::from_section(
-                    "SPACE COMBAT",
+                    "◢ SPACE COMBAT ◣",
                     TextStyle {
-                        font_size: 60.0,
-                        color: Color::WHITE,
+                        font_size: 80.0,
+                        color: colors::NEON_CYAN,
                         ..default()
                     },
                 )
@@ -762,37 +1106,101 @@ pub fn setup_main_menu(mut commands: Commands) {
                     margin: UiRect::all(Val::Px(50.0)),
                     ..default()
                 }),
-            );
+                GlitchEffect {
+                    interval: 2.0,
+                    duration: 0.15,
+                    intensity: 1.0,
+                    ..default()
+                },
+            ));
             
-            parent.spawn(
+            // Subtitle with neon glow
+            parent.spawn((
                 TextBundle::from_section(
-                    "Press ENTER to Start",
+                    "// NEURAL INTERFACE ACTIVE",
                     TextStyle {
-                        font_size: 30.0,
-                        color: Color::srgb(0.7, 0.7, 0.7),
+                        font_size: 22.0,
+                        color: colors::NEON_MAGENTA,
                         ..default()
                     },
                 )
                 .with_style(Style {
-                    margin: UiRect::all(Val::Px(20.0)),
+                    margin: UiRect::bottom(Val::Px(60.0)),
                     ..default()
                 }),
-            );
+                PulseAnimation::new(1.0, colors::NEON_MAGENTA).with_range(0.6, 1.0),
+            ));
             
-            parent.spawn(
+            // Start prompt with pulsing animation
+            parent.spawn((
                 TextBundle::from_section(
-                    "Controls:\nWASD - Move | Arrow Keys - Rotate | Space/Ctrl - Up/Down\nMouse - Fire | Q/E - Roll | Shift - Boost\n1/2/3 - Switch Weapons | U - Upgrades",
+                    ">> PRESS [ENTER] TO INITIALIZE <<",
                     TextStyle {
-                        font_size: 20.0,
-                        color: Color::srgb(0.5, 0.5, 0.5),
+                        font_size: 28.0,
+                        color: colors::NEON_GREEN,
                         ..default()
                     },
                 )
                 .with_style(Style {
-                    margin: UiRect::all(Val::Px(20.0)),
+                    margin: UiRect::all(Val::Px(30.0)),
                     ..default()
-                })
-                .with_text_justify(JustifyText::Center),
+                }),
+                PulseAnimation::new(2.0, colors::NEON_GREEN).with_range(0.5, 1.0),
+            ));
+            
+            // Controls panel - Holographic style
+            parent.spawn((
+                PanelConfig::new()
+                    .with_width(Val::Px(700.0))
+                    .with_padding(UiRect::all(Val::Px(25.0)))
+                    .with_border_color(colors::ELECTRIC_PURPLE)
+                    .dark()
+                    .build(),
+                PulseAnimation::new(0.8, colors::ELECTRIC_PURPLE).with_range(0.8, 1.0),
+            )).with_children(|panel| {
+                panel.spawn(TextBundle::from_section(
+                    "// CONTROL MATRIX //",
+                    TextStyle {
+                        font_size: 20.0,
+                        color: colors::ELECTRIC_PURPLE,
+                        ..default()
+                    },
+                ).with_style(Style {
+                    margin: UiRect::bottom(Val::Px(15.0)),
+                    ..default()
+                }));
+                
+                panel.spawn(
+                    TextBundle::from_section(
+                        "MOVEMENT    > WASD\nROTATION    > Arrow Keys\nALTITUDE    > Space / Ctrl\nFIRE        > Mouse / Click\nROLL        > Q / E\nBOOST       > Shift\nWEAPONS     > 1 / 2 / 3\nUPGRADES    > U\nGALAXY MAP  > M",
+                        TextStyle {
+                            font_size: 16.0,
+                            color: Color::srgb(0.7, 0.8, 0.9),
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        ..default()
+                    }),
+                );
+            });
+            
+            // Version/credits in corner
+            parent.spawn(
+                TextBundle::from_section(
+                    "v1.0.0 // NEURAL SYSTEMS ONLINE",
+                    TextStyle {
+                        font_size: 12.0,
+                        color: Color::srgb(0.4, 0.5, 0.6),
+                        ..default()
+                    },
+                )
+                .with_style(Style {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(20.0),
+                    right: Val::Px(20.0),
+                    ..default()
+                }),
             );
         });
 }
@@ -1415,7 +1823,7 @@ pub enum PauseMenuButton {
     Exit,
 }
 
-/// Setup pause menu
+/// Setup pause menu - CYBERPUNK REDESIGN
 pub fn setup_pause_menu(mut commands: Commands) {
     commands
         .spawn((
@@ -1428,35 +1836,53 @@ pub fn setup_pause_menu(mut commands: Commands) {
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
-                background_color: Color::srgba(0.0, 0.0, 0.0, 0.8).into(),
+                background_color: Color::srgba(0.02, 0.0, 0.08, 0.9).into(),
                 ..default()
             },
             PauseMenuRoot,
         ))
         .with_children(|parent| {
-            parent.spawn(
-                TextBundle::from_section(
-                    "PAUSED",
-                    TextStyle {
-                        font_size: 60.0,
-                        color: Color::WHITE,
+            // Main pause panel with holographic style
+            parent.spawn((
+                PanelConfig::new()
+                    .with_width(Val::Px(500.0))
+                    .with_padding(UiRect::all(Val::Px(40.0)))
+                    .with_border_color(colors::NEON_CYAN)
+                    .darker()
+                    .build(),
+                PulseAnimation::new(1.0, colors::NEON_CYAN).with_range(0.7, 1.0),
+            )).with_children(|panel| {
+                // Paused title with glitch
+                panel.spawn((
+                    TextBundle::from_section(
+                        "// SYSTEM PAUSED //",
+                        TextStyle {
+                            font_size: 50.0,
+                            color: colors::NEON_CYAN,
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        margin: UiRect::bottom(Val::Px(40.0)),
+                        ..default()
+                    }),
+                    GlitchEffect {
+                        interval: 3.0,
+                        duration: 0.1,
+                        intensity: 0.7,
                         ..default()
                     },
-                )
-                .with_style(Style {
-                    margin: UiRect::all(Val::Px(50.0)),
-                    ..default()
-                }),
-            );
+                ));
 
-            // Resume button
-            spawn_menu_button(parent, "Resume (ESC)", PauseMenuButton::Resume);
-            
-            // Save button
-            spawn_menu_button(parent, "Save Game", PauseMenuButton::Save);
-            
-            // Exit button
-            spawn_menu_button(parent, "Exit to Main Menu", PauseMenuButton::Exit);
+                // Resume button
+                spawn_cyberpunk_menu_button(panel, ">> RESUME [ESC]", PauseMenuButton::Resume, colors::NEON_GREEN);
+                
+                // Save button
+                spawn_cyberpunk_menu_button(panel, ">> SAVE PROGRESS", PauseMenuButton::Save, colors::NEON_CYAN);
+                
+                // Exit button
+                spawn_cyberpunk_menu_button(panel, ">> EXIT TO MENU", PauseMenuButton::Exit, colors::NEON_ORANGE);
+            });
         });
 }
 
@@ -1525,7 +1951,7 @@ pub enum GameOverButton {
     MainMenu,
 }
 
-/// Setup game over menu
+/// Setup game over menu - CYBERPUNK REDESIGN
 pub fn setup_game_over_menu(mut commands: Commands) {
     let save_exists = save_load::save_exists();
     
@@ -1540,52 +1966,72 @@ pub fn setup_game_over_menu(mut commands: Commands) {
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
-                background_color: Color::srgba(0.1, 0.0, 0.0, 0.9).into(),
+                background_color: Color::srgba(0.1, 0.0, 0.05, 0.95).into(),
                 ..default()
             },
             GameOverMenuRoot,
         ))
         .with_children(|parent| {
-            parent.spawn(
-                TextBundle::from_section(
-                    "GAME OVER",
-                    TextStyle {
-                        font_size: 70.0,
-                        color: Color::srgb(1.0, 0.2, 0.2),
+            // Main game over panel
+            parent.spawn((
+                PanelConfig::new()
+                    .with_width(Val::Px(600.0))
+                    .with_padding(UiRect::all(Val::Px(50.0)))
+                    .with_border_color(colors::DANGER_COLOR)
+                    .darker()
+                    .build(),
+                PulseAnimation::new(1.5, colors::DANGER_COLOR).with_range(0.6, 1.0),
+            )).with_children(|panel| {
+                // Game over title with glitch effect
+                panel.spawn((
+                    TextBundle::from_section(
+                        "// CRITICAL FAILURE //",
+                        TextStyle {
+                            font_size: 60.0,
+                            color: colors::DANGER_COLOR,
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        margin: UiRect::bottom(Val::Px(30.0)),
+                        ..default()
+                    }),
+                    GlitchEffect {
+                        interval: 1.0,
+                        duration: 0.2,
+                        intensity: 1.5,
                         ..default()
                     },
-                )
-                .with_style(Style {
-                    margin: UiRect::all(Val::Px(50.0)),
-                    ..default()
-                }),
-            );
+                ));
 
-            parent.spawn(
-                TextBundle::from_section(
-                    "Your ship has been destroyed",
-                    TextStyle {
-                        font_size: 24.0,
-                        color: Color::srgb(0.8, 0.8, 0.8),
+                // Subtitle
+                panel.spawn(
+                    TextBundle::from_section(
+                        "HULL INTEGRITY: 0%\nSYSTEMS OFFLINE",
+                        TextStyle {
+                            font_size: 20.0,
+                            color: Color::srgb(0.8, 0.5, 0.5),
+                            ..default()
+                        },
+                    )
+                    .with_style(Style {
+                        margin: UiRect::bottom(Val::Px(40.0)),
                         ..default()
-                    },
-                )
-                .with_style(Style {
-                    margin: UiRect::bottom(Val::Px(40.0)),
-                    ..default()
-                }),
-            );
+                    })
+                    .with_text_justify(JustifyText::Center),
+                );
 
-            // Restart button
-            spawn_menu_button(parent, "Restart (New Game)", GameOverButton::Restart);
-            
-            // Load save button (only if save exists)
-            if save_exists {
-                spawn_menu_button(parent, "Load Saved Game", GameOverButton::LoadSave);
-            }
-            
-            // Main menu button
-            spawn_menu_button(parent, "Main Menu", GameOverButton::MainMenu);
+                // Restart button
+                spawn_cyberpunk_menu_button(panel, ">> RESPAWN", GameOverButton::Restart, colors::NEON_GREEN);
+                
+                // Load save button (only if save exists)
+                if save_exists {
+                    spawn_cyberpunk_menu_button(panel, ">> RESTORE BACKUP", GameOverButton::LoadSave, colors::NEON_CYAN);
+                }
+                
+                // Main menu button
+                spawn_cyberpunk_menu_button(panel, ">> EXIT TO MENU", GameOverButton::MainMenu, colors::NEON_ORANGE);
+            });
         });
 }
 
@@ -1649,7 +2095,7 @@ pub fn game_over_menu_system(
     }
 }
 
-/// Helper function to spawn a menu button
+/// Helper function to spawn a menu button - LEGACY (kept for compatibility)
 fn spawn_menu_button<T: Component>(parent: &mut ChildBuilder, text: &str, button_type: T) {
     parent.spawn((
         ButtonBundle {
@@ -1672,6 +2118,38 @@ fn spawn_menu_button<T: Component>(parent: &mut ChildBuilder, text: &str, button
             TextStyle {
                 font_size: 28.0,
                 color: Color::WHITE,
+                ..default()
+            },
+        ));
+    });
+}
+
+/// Helper function to spawn a cyberpunk-styled menu button
+fn spawn_cyberpunk_menu_button<T: Component>(parent: &mut ChildBuilder, text: &str, button_type: T, border_color: Color) {
+    parent.spawn((
+        ButtonBundle {
+            style: Style {
+                padding: UiRect::all(Val::Px(18.0)),
+                margin: UiRect::all(Val::Px(12.0)),
+                border: borders::THICK_BORDER,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                width: Val::Percent(100.0),
+                ..default()
+            },
+            background_color: colors::BUTTON_BG.into(),
+            border_color: border_color.into(),
+            border_radius: BorderRadius::all(Val::Px(2.0)),
+            ..default()
+        },
+        button_type,
+        PulseAnimation::new(1.5, border_color).with_range(0.7, 1.0),
+    )).with_children(|button_parent| {
+        button_parent.spawn(TextBundle::from_section(
+            text,
+            TextStyle {
+                font_size: 24.0,
+                color: border_color,
                 ..default()
             },
         ));
@@ -1741,177 +2219,128 @@ pub fn update_upgrade_notification_pulse(
     }
 }
 
-/// Calculate intercept point for a moving target
-/// Returns the position where the target will be when the projectile arrives
-/// Accounts for both shooter velocity (player speed) and target velocity
+/// Calculate intercept point for a moving target using analytical solution
 /// 
-/// The projectile velocity is: direction * projectile_speed + shooter_velocity
-/// We need to find the direction and time such that:
-/// shooter_pos + (direction * projectile_speed + shooter_velocity) * t = target_pos + target_velocity * t
+/// This solves the classic interception problem:
+/// Given:
+///   - P0: Target's current position
+///   - V0: Target's velocity vector
+///   - P1: Shooter's position (projectile origin)
+///   - s1: Projectile speed (scalar, not vector)
+/// 
+/// Find:
+///   - V: The direction vector for the projectile
+///   - t: Time of impact
+/// 
+/// Solution:
+/// At time t, projectile position = P1 + V*t where |V| = s1
+/// At time t, target position = P0 + V0*t
+/// 
+/// These must be equal: P1 + V*t = P0 + V0*t
+/// Since |V| = s1, we have: |P0 + V0*t - P1| = s1*t
+/// 
+/// Squaring both sides and solving the quadratic equation gives us t.
 fn calculate_intercept_point(
     shooter_pos: Vec3,
-    shooter_velocity: Vec3,
+    _shooter_velocity: Vec3,  // Not used since projectiles don't inherit momentum
     target_pos: Vec3,
     target_velocity: Vec3,
     projectile_speed: f32,
     _shoot_direction: Vec3,
 ) -> Option<Vec3> {
-    // Safety checks: ensure all inputs are valid
+    // Safety checks
     if !shooter_pos.is_finite() || !target_pos.is_finite() {
         return None;
     }
-    if !shooter_velocity.is_finite() || !target_velocity.is_finite() {
+    if !target_velocity.is_finite() {
         return None;
     }
-    if !projectile_speed.is_finite() || projectile_speed <= 0.0 || projectile_speed > 10000.0 {
+    if !projectile_speed.is_finite() || projectile_speed <= 0.0 {
         return None;
     }
     
-    // Using iterative approach for intercept calculation
-    // Projectile velocity = aim_direction * projectile_speed + shooter_velocity
-    let max_iterations = 15;
-    let mut predicted_pos = target_pos;
-    let convergence_threshold = 0.01;
-    let min_distance = 0.1;
+    // Relative position from shooter to target
+    let to_target = target_pos - shooter_pos;
     
-    for iteration in 0..max_iterations {
-        let to_predicted = predicted_pos - shooter_pos;
-        let distance = to_predicted.length();
-        
-        // Safety check: ensure distance is valid
-        if !distance.is_finite() || distance > 10000.0 {
-            return None;
+    // Solve for time t when projectile intercepts target
+    // |to_target + target_velocity * t| = projectile_speed * t
+    // Squaring both sides:
+    // |to_target|^2 + 2*(to_target · target_velocity)*t + |target_velocity|^2*t^2 = projectile_speed^2 * t^2
+    // 
+    // Rearranging into standard quadratic form: a*t^2 + b*t + c = 0
+    // (|target_velocity|^2 - projectile_speed^2) * t^2 + 2*(to_target · target_velocity) * t + |to_target|^2 = 0
+    
+    let a = target_velocity.length_squared() - projectile_speed * projectile_speed;
+    let b = 2.0 * to_target.dot(target_velocity);
+    let c = to_target.length_squared();
+    
+    // Safety check
+    if !a.is_finite() || !b.is_finite() || !c.is_finite() {
+        return None;
+    }
+    
+    // Special case: target very close to shooter
+    if c < 0.01 {
+        return Some(target_pos);
+    }
+    
+    // Solve the quadratic equation
+    let time_to_intercept = if a.abs() < 0.0001 {
+        // Linear case: target speed ≈ projectile speed
+        // Equation becomes: b*t + c = 0
+        if b.abs() > 0.0001 {
+            let t = -c / b;
+            if t > 0.0 { t } else { return None; }
+        } else {
+            // Target nearly stationary or moving perpendicular
+            let distance = to_target.length();
+            distance / projectile_speed
         }
-        
-        if distance < min_distance {
-            // Ensure predicted position is valid before returning
-            if predicted_pos.is_finite() {
-                return Some(predicted_pos);
-            }
-            return None;
-        }
-        
-        // Calculate the direction from shooter to predicted position
-        let aim_direction = to_predicted / distance;
-        
-        // Projectile's actual velocity vector when fired in this direction
-        // projectile_velocity = aim_direction * projectile_speed + shooter_velocity
-        let projectile_velocity_vec = aim_direction * projectile_speed + shooter_velocity;
-        
-        // Relative velocity between projectile and target
-        let relative_velocity = projectile_velocity_vec - target_velocity;
-        
-        // Check if we're closing (component of relative velocity along aim direction)
-        let closing_speed = relative_velocity.dot(aim_direction);
-        
-        // If we're not closing and we've done a few iterations, it's likely impossible
-        if closing_speed <= 0.0 && iteration > 3 {
-            return None;
-        }
-        
-        // Calculate time to intercept
-        // We need to solve: shooter_pos + projectile_velocity_vec * t = target_pos + target_velocity * t
-        // Which gives: relative_velocity * t = to_predicted
-        // Where relative_velocity = projectile_velocity_vec - target_velocity
-        
-        // To solve for t, we need to find when the projectile will reach the predicted position
-        // The projectile travels along its velocity vector, not directly to predicted_pos
-        // We want to find t where: |shooter_pos + projectile_velocity_vec * t - (target_pos + target_velocity * t)| = 0
-        // Or: |to_predicted - relative_velocity * t| = 0 (where to_predicted is at time 0)
-        
-        // For the iterative solution, we approximate by assuming we're aiming directly at predicted_pos
-        // The closing speed tells us how fast we're approaching along the aim direction
-        // But we need to account for the fact that the projectile doesn't travel exactly along aim_direction
-        
-        // Solve the quadratic equation properly
-        // We want: shooter_pos + projectile_velocity_vec * t = target_pos + target_velocity * t
-        // Which is: (aim_dir * proj_speed + shooter_vel - target_vel) * t = target_pos - shooter_pos
-        // Or: relative_velocity * t = target_pos - shooter_pos
-        // Taking the squared magnitude: |relative_velocity * t - (target_pos - shooter_pos)|^2 = 0
-        
-        // Note: We need to use the CURRENT target position, not predicted_pos
-        // because we're solving for when the projectile (fired in aim_dir) will meet the target
-        let to_current_target = target_pos - shooter_pos;
-        
-        // The equation is: |relative_velocity * t - to_current_target|^2 = 0
-        // Expanding: |relative_velocity|^2*t^2 - 2*relative_velocity.dot(to_current_target)*t + |to_current_target|^2 = 0
-        let a = relative_velocity.length_squared();
-        let b = -2.0 * relative_velocity.dot(to_current_target);
-        let c = to_current_target.length_squared();
-        
-        // Solve quadratic: t = (-b ± sqrt(b^2 - 4ac)) / (2a)
-        // We want the positive solution where the projectile meets the target
+    } else {
+        // Quadratic case: standard solution
         let discriminant = b * b - 4.0 * a * c;
         
-        // Safety check: ensure discriminant and coefficients are finite
-        if !discriminant.is_finite() || !a.is_finite() || !b.is_finite() || !c.is_finite() {
-            return None;
+        // Check if intercept is possible
+        if discriminant < 0.0 {
+            // No real solution - target too fast to intercept
+            // Use simple prediction as fallback
+            let distance = to_target.length();
+            let simple_time = distance / projectile_speed;
+            let fallback_pos = target_pos + target_velocity * simple_time;
+            return if fallback_pos.is_finite() {
+                Some(fallback_pos)
+            } else {
+                None
+            };
         }
         
-        let time_to_hit = if discriminant >= 0.0 && a > 0.001 {
-            // Two solutions: take the positive one
-            let sqrt_discriminant = discriminant.sqrt();
-            let t1 = (-b + sqrt_discriminant) / (2.0 * a);
-            let t2 = (-b - sqrt_discriminant) / (2.0 * a);
-            
-            // Use the positive, smaller solution (earlier intercept)
-            if t1 > 0.0 && t2 > 0.0 {
-                t1.min(t2).clamp(0.0, 100.0) // Clamp to reasonable time range
-            } else if t1 > 0.0 {
-                t1.clamp(0.0, 100.0)
-            } else if t2 > 0.0 {
-                t2.clamp(0.0, 100.0)
-            } else {
-                // No positive solution, fall back to closing speed method
-                if closing_speed > 0.001 {
-                    (distance / closing_speed).clamp(0.0, 100.0)
-                } else {
-                    (distance / projectile_speed.max(0.1)).clamp(0.0, 100.0)
-                }
-            }
+        // Two solutions - we want the smallest positive one (earliest intercept)
+        let sqrt_disc = discriminant.sqrt();
+        let t1 = (-b - sqrt_disc) / (2.0 * a);
+        let t2 = (-b + sqrt_disc) / (2.0 * a);
+        
+        // Choose the earliest positive time
+        if t1 > 0.0 && (t2 <= 0.0 || t1 < t2) {
+            t1
+        } else if t2 > 0.0 {
+            t2
         } else {
-            // No real solution or relative velocity too small, use approximation
-            if closing_speed > 0.001 {
-                (distance / closing_speed).clamp(0.0, 100.0)
-            } else {
-                (distance / projectile_speed.max(0.1)).clamp(0.0, 100.0)
-            }
-        };
-        
-        // Safety check: ensure time_to_hit is valid
-        if !time_to_hit.is_finite() || time_to_hit < 0.0 || time_to_hit > 100.0 {
+            // Both negative - cannot intercept (target moving away faster than we can catch)
             return None;
         }
-        
-        // Predict where target will be at that time
-        let new_predicted_pos = target_pos + target_velocity * time_to_hit;
-        
-        // Safety check: ensure new predicted position is valid
-        if !new_predicted_pos.is_finite() {
-            return None;
-        }
-        
-        // Check convergence
-        let error = (new_predicted_pos - predicted_pos).length();
-        if error.is_finite() && error < convergence_threshold {
-            return Some(new_predicted_pos);
-        }
-        
-        // Prevent infinite loop if we're oscillating
-        if iteration > 5 && error.is_finite() && error > distance * 0.5 {
-            // Not converging well, return current best estimate if valid
-            if predicted_pos.is_finite() {
-                return Some(predicted_pos);
-            }
-            return None;
-        }
-        
-        predicted_pos = new_predicted_pos;
+    };
+    
+    // Validate time is reasonable
+    if !time_to_intercept.is_finite() || time_to_intercept < 0.0 || time_to_intercept > 100.0 {
+        return None;
     }
     
-    // Return best estimate after max iterations (if valid)
-    if predicted_pos.is_finite() {
-        Some(predicted_pos)
+    // Calculate the intercept point
+    let intercept_pos = target_pos + target_velocity * time_to_intercept;
+    
+    // Final validation
+    if intercept_pos.is_finite() {
+        Some(intercept_pos)
     } else {
         None
     }
@@ -2009,22 +2438,21 @@ pub fn update_targeting_reticule_system(
         if screen_pos.x.is_finite() && screen_pos.y.is_finite() {
             // Position reticule at screen coordinates (centered on the aim point)
             for mut style in reticule_query.iter_mut() {
-                style.left = Val::Px(screen_pos.x - 15.0); // Center the 30px reticule
-                style.top = Val::Px(screen_pos.y - 15.0);
+                style.left = Val::Px(screen_pos.x - 25.0); // Center the 50px reticule
+                style.top = Val::Px(screen_pos.y - 25.0);
             }
         }
     }
     
     // Update lead indicator (prediction square) - shows accurate intercept point
-    // Accounts for player velocity, enemy velocity, and projectile speed
+    // Only accounts for enemy velocity since projectiles no longer inherit momentum
     if let Ok((mut lead_style, mut lead_visibility, mut lead_border)) = lead_query.get_single_mut() {
         if let Some((target_pos, target_vel, distance)) = closest_enemy {
-            // Check if target is moving significantly or player is moving
+            // Check if target is moving significantly
             let target_speed = target_vel.length();
-            let player_speed = player_vel.length();
             
-            // Show lead indicator if either target or player is moving significantly
-            if target_speed > 5.0 || player_speed > 5.0 {
+            // Show lead indicator if target is moving significantly
+            if target_speed > 5.0 {
                 // Calculate intercept point using the improved algorithm
                 if let Some(intercept_point) = calculate_intercept_point(
                     player_pos,
@@ -2040,8 +2468,8 @@ pub fn update_targeting_reticule_system(
                         if let Some(lead_screen_pos) = camera.world_to_viewport(camera_transform, intercept_point) {
                             // Safety check: ensure screen position is valid
                             if lead_screen_pos.x.is_finite() && lead_screen_pos.y.is_finite() {
-                                lead_style.left = Val::Px(lead_screen_pos.x - 10.0); // Center the 20px indicator
-                                lead_style.top = Val::Px(lead_screen_pos.y - 10.0);
+                                lead_style.left = Val::Px(lead_screen_pos.x - 12.0); // Center the 24px indicator
+                                lead_style.top = Val::Px(lead_screen_pos.y - 12.0);
                                 *lead_visibility = Visibility::Visible;
                                 
                                 // Color based on lead distance - more noticeable for larger leads
@@ -2103,11 +2531,11 @@ pub fn update_targeting_reticule_system(
         }
     }
     
-    // Update reticule colors based on targeting
+    // Update reticule colors based on targeting - CYBERPUNK COLORS
     let (circle_color, dot_color) = if enemy_in_crosshair {
-        (Color::srgb(1.0, 0.2, 0.2), Color::srgb(1.0, 0.2, 0.2)) // Red when targeting
+        (colors::DANGER_COLOR, colors::DANGER_COLOR) // Red when targeting (locked on)
     } else {
-        (Color::srgb(0.8, 1.0, 0.8), Color::WHITE) // Green/white when not targeting
+        (colors::NEON_GREEN, colors::NEON_CYAN) // Green circle, cyan dot when not targeting
     };
     
     for mut border_color in circle_query.iter_mut() {
@@ -2125,7 +2553,7 @@ pub struct EnemyHealthBar {
     pub parent_ship: Entity,
 }
 
-/// Setup 3D health bars for enemies
+/// Setup 3D health bars for enemies - CYBERPUNK HOLOGRAPHIC STYLE
 pub fn setup_enemy_health_bars(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -2140,13 +2568,14 @@ pub fn setup_enemy_health_bars(
             continue;
         }
         
-        // Spawn health bar background
+        // Spawn health bar background - HOLOGRAPHIC FRAME
         let bar_background = commands.spawn((
             PbrBundle {
-                mesh: meshes.add(Cuboid::new(2.0, 0.2, 0.01)),
+                mesh: meshes.add(Cuboid::new(2.2, 0.35, 0.02)),
                 material: materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.2, 0.2, 0.2),
+                    base_color: Color::srgba(0.0, 0.0, 0.0, 0.8), // Dark translucent
                     unlit: true,
+                    alpha_mode: AlphaMode::Blend,
                     ..default()
                 }),
                 transform: Transform::from_xyz(0.0, 5.0, 0.0),
@@ -2157,33 +2586,62 @@ pub fn setup_enemy_health_bars(
             },
         )).id();
         
-        // Spawn health bar fill (child of background)
+        // Spawn neon border frame (outline)
         commands.entity(bar_background).with_children(|parent| {
+            // Top border
+            parent.spawn(PbrBundle {
+                mesh: meshes.add(Cuboid::new(2.2, 0.05, 0.01)),
+                material: materials.add(StandardMaterial {
+                    base_color: colors::NEON_CYAN,
+                    emissive: (colors::NEON_CYAN.to_linear() * 2.0).into(),
+                    unlit: true,
+                    ..default()
+                }),
+                transform: Transform::from_xyz(0.0, 0.2, 0.03),
+                ..default()
+            });
+            
+            // Bottom border
+            parent.spawn(PbrBundle {
+                mesh: meshes.add(Cuboid::new(2.2, 0.05, 0.01)),
+                material: materials.add(StandardMaterial {
+                    base_color: colors::NEON_CYAN,
+                    emissive: (colors::NEON_CYAN.to_linear() * 2.0).into(),
+                    unlit: true,
+                    ..default()
+                }),
+                transform: Transform::from_xyz(0.0, -0.2, 0.03),
+                ..default()
+            });
+            
+            // Health bar fill - NEON RED
             parent.spawn((
                 PbrBundle {
-                    mesh: meshes.add(Cuboid::new(2.0, 0.2, 0.01)),
+                    mesh: meshes.add(Cuboid::new(2.0, 0.25, 0.01)),
                     material: materials.add(StandardMaterial {
-                        base_color: Color::srgb(0.2, 0.8, 0.2),
+                        base_color: colors::HEALTH_COLOR,
+                        emissive: (colors::HEALTH_COLOR.to_linear() * 1.5).into(),
                         unlit: true,
                         ..default()
                     }),
-                    transform: Transform::from_xyz(0.0, 0.0, 0.01),
+                    transform: Transform::from_xyz(0.0, 0.0, 0.02),
                     ..default()
                 },
                 HealthBarFill,
             ));
             
-            // Spawn shield bar fill (on top of health)
+            // Shield bar fill (on top of health) - NEON CYAN
             parent.spawn((
                 PbrBundle {
-                    mesh: meshes.add(Cuboid::new(2.0, 0.15, 0.01)),
+                    mesh: meshes.add(Cuboid::new(2.0, 0.2, 0.01)),
                     material: materials.add(StandardMaterial {
-                        base_color: Color::srgb(0.2, 0.5, 1.0),
+                        base_color: colors::SHIELD_COLOR,
+                        emissive: (colors::SHIELD_COLOR.to_linear() * 1.5).into(),
                         unlit: true,
                         alpha_mode: AlphaMode::Blend,
                         ..default()
                     }),
-                    transform: Transform::from_xyz(0.0, 0.2, 0.02),
+                    transform: Transform::from_xyz(0.0, 0.0, 0.03),
                     ..default()
                 },
                 ShieldBarFill,

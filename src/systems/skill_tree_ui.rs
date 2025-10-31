@@ -6,6 +6,8 @@ use crate::components::{
     resources::Inventory,
 };
 use crate::systems::stat_visualization;
+use crate::systems::ui_theme::{colors, PanelConfig};
+use crate::systems::ui_animations::PulseAnimation;
 
 /// Root marker for skill tree UI
 #[derive(Component)]
@@ -51,14 +53,14 @@ pub struct NodeTooltip {
 #[derive(Resource, Default)]
 pub struct HoveredNode(pub Option<UpgradeType>);
 
-/// Setup advanced skill tree UI
+/// Setup advanced skill tree UI - CYBERPUNK REDESIGN
 pub fn setup_skill_tree_ui(
     mut commands: Commands,
-    inventory: Res<Inventory>,
+    _inventory: Res<Inventory>,
     class_progression: Res<ClassProgression>,
     active_tab: Res<ActiveClassTab>,
 ) {
-    println!("[Skill Tree UI] Setting up advanced skill tree interface");
+    println!("[Skill Tree UI] Setting up cyberpunk skill tree interface");
     
     commands.spawn((
         NodeBundle {
@@ -69,16 +71,16 @@ pub fn setup_skill_tree_ui(
                 padding: UiRect::all(Val::Px(20.0)),
                 ..default()
             },
-            background_color: Color::srgb(0.05, 0.05, 0.1).into(),
+            background_color: Color::srgb(0.02, 0.0, 0.08).into(), // Dark cyberpunk background
             ..default()
         },
         SkillTreeRoot,
     )).with_children(|parent| {
-        // Header with title and skill points
+        // Header with title and skill points - CYBERPUNK
         parent.spawn(NodeBundle {
             style: Style {
                 width: Val::Percent(100.0),
-                height: Val::Px(60.0),
+                height: Val::Px(70.0),
                 flex_direction: FlexDirection::Row,
                 justify_content: JustifyContent::SpaceBetween,
                 align_items: AlignItems::Center,
@@ -87,27 +89,30 @@ pub fn setup_skill_tree_ui(
             },
             ..default()
         }).with_children(|header| {
-            // Title
+            // Title with neon glow
             header.spawn(TextBundle::from_section(
-                "SKILL TREE",
+                "// NEURAL AUGMENTATION MATRIX",
                 TextStyle {
-                    font_size: 40.0,
-                    color: Color::WHITE,
+                    font_size: 38.0,
+                    color: colors::NEON_CYAN,
                     ..default()
                 },
             ));
             
-            // Skill points display
-            header.spawn(TextBundle::from_section(
-                format!("Skill Points: {} / {}", 
-                    class_progression.available_points(),
-                    class_progression.total_skill_points
+            // Skill points display with pulsing effect
+            header.spawn((
+                TextBundle::from_section(
+                    format!(">> POINTS: {} / {}", 
+                        class_progression.available_points(),
+                        class_progression.total_skill_points
+                    ),
+                    TextStyle {
+                        font_size: 26.0,
+                        color: colors::NEON_GREEN,
+                        ..default()
+                    },
                 ),
-                TextStyle {
-                    font_size: 28.0,
-                    color: Color::srgb(1.0, 0.8, 0.2),
-                    ..default()
-                },
+                PulseAnimation::new(2.0, colors::NEON_GREEN).with_range(0.7, 1.0),
             ));
         });
         
@@ -132,7 +137,7 @@ pub fn setup_skill_tree_ui(
             spawn_skill_tree_panel(content, &active_tab, &class_progression);
         });
         
-        // Footer with instructions
+        // Footer with instructions - CYBERPUNK
         parent.spawn(NodeBundle {
             style: Style {
                 width: Val::Percent(100.0),
@@ -145,10 +150,10 @@ pub fn setup_skill_tree_ui(
             ..default()
         }).with_children(|footer| {
             footer.spawn(TextBundle::from_section(
-                "Click nodes to unlock | Hover for details | ESC to close",
+                ">> CLICK TO UNLOCK | HOVER FOR DETAILS | [ESC] TO EXIT",
                 TextStyle {
-                    font_size: 16.0,
-                    color: Color::srgb(0.6, 0.6, 0.6),
+                    font_size: 15.0,
+                    color: colors::ELECTRIC_PURPLE,
                     ..default()
                 },
             ));
@@ -156,7 +161,7 @@ pub fn setup_skill_tree_ui(
     });
 }
 
-/// Spawn class tabs
+/// Spawn class tabs - CYBERPUNK STYLE
 fn spawn_class_tabs(
     parent: &mut ChildBuilder,
     class_progression: &ClassProgression,
@@ -167,7 +172,7 @@ fn spawn_class_tabs(
             width: Val::Percent(100.0),
             height: Val::Px(60.0),
             flex_direction: FlexDirection::Row,
-            column_gap: Val::Px(10.0),
+            column_gap: Val::Px(12.0),
             margin: UiRect::bottom(Val::Px(15.0)),
             ..default()
         },
@@ -183,36 +188,40 @@ fn spawn_class_tabs(
         ] {
             let is_active = class == active_tab.0;
             let points = class_progression.get_points(class);
+            let class_color = class.primary_color();
             
-            tabs.spawn((
+            let mut button = tabs.spawn((
                 ButtonBundle {
                     style: Style {
-                        padding: UiRect::all(Val::Px(15.0)),
-                        border: UiRect::all(Val::Px(2.0)),
+                        padding: UiRect::all(Val::Px(18.0)),
+                        border: UiRect::all(Val::Px(3.0)),
                         ..default()
                     },
                     background_color: if is_active {
-                        Color::srgb(0.3, 0.3, 0.5)
+                        Color::srgba(class_color.to_srgba().red * 0.2, class_color.to_srgba().green * 0.2, class_color.to_srgba().blue * 0.2, 0.8)
                     } else {
-                        Color::srgb(0.15, 0.15, 0.2)
+                        colors::BUTTON_BG
                     }.into(),
-                    border_color: if is_active {
-                        Color::srgb(0.6, 0.8, 1.0)
-                    } else {
-                        Color::srgb(0.3, 0.3, 0.3)
-                    }.into(),
+                    border_color: class_color.into(),
+                    border_radius: BorderRadius::all(Val::Px(2.0)),
                     ..default()
                 },
                 ClassTab { class },
-            )).with_children(|button| {
+            ));
+            
+            if is_active {
+                button.insert(PulseAnimation::new(1.5, class_color).with_range(0.8, 1.0));
+            }
+            
+            button.with_children(|button| {
                 button.spawn(TextBundle::from_section(
-                    format!("{} ({})", class.name(), points),
+                    format!("{} [{}]", class.name().to_uppercase(), points),
                     TextStyle {
-                        font_size: 18.0,
+                        font_size: 16.0,
                         color: if is_active {
-                            Color::WHITE
+                            class_color
                         } else {
-                            Color::srgb(0.7, 0.7, 0.7)
+                            Color::srgb(0.7, 0.7, 0.8)
                         },
                         ..default()
                     },
@@ -222,33 +231,30 @@ fn spawn_class_tabs(
     });
 }
 
-/// Spawn stat panel with radar chart
+/// Spawn stat panel with radar chart - CYBERPUNK
 fn spawn_stat_panel(parent: &mut ChildBuilder) {
     parent.spawn((
-        NodeBundle {
-            style: Style {
-                width: Val::Px(350.0),
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(15.0)),
-                border: UiRect::all(Val::Px(2.0)),
-                row_gap: Val::Px(10.0),
-                ..default()
-            },
-            background_color: Color::srgb(0.1, 0.1, 0.15).into(),
-            border_color: Color::srgb(0.3, 0.3, 0.4).into(),
-            ..default()
-        },
+        PanelConfig::new()
+            .with_width(Val::Px(360.0))
+            .with_padding(UiRect::all(Val::Px(20.0)))
+            .with_border_color(colors::NEON_MAGENTA)
+            .darker()
+            .build(),
         StatPanel,
+        PulseAnimation::new(1.2, colors::NEON_MAGENTA).with_range(0.75, 1.0),
     )).with_children(|panel| {
         // Stats title
         panel.spawn(TextBundle::from_section(
-            "SHIP STATISTICS",
+            "// SHIP DIAGNOSTICS",
             TextStyle {
-                font_size: 24.0,
-                color: Color::srgb(0.8, 0.9, 1.0),
+                font_size: 22.0,
+                color: colors::NEON_MAGENTA,
                 ..default()
             },
-        ));
+        ).with_style(Style {
+            margin: UiRect::bottom(Val::Px(5.0)),
+            ..default()
+        }));
         
         // Stat list (will be populated by update system)
         panel.spawn((
@@ -263,7 +269,7 @@ fn spawn_stat_panel(parent: &mut ChildBuilder) {
             StatListText,
         ));
         
-        // Radar chart
+        // Radar chart - CYBERPUNK
         panel.spawn((
             NodeBundle {
                 style: Style {
@@ -272,9 +278,12 @@ fn spawn_stat_panel(parent: &mut ChildBuilder) {
                     margin: UiRect::top(Val::Px(20.0)),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                background_color: Color::srgb(0.05, 0.05, 0.08).into(),
+                background_color: Color::srgba(0.0, 0.0, 0.0, 0.6).into(),
+                border_color: Color::srgba(0.0, 0.9, 1.0, 0.3).into(),
+                border_radius: BorderRadius::all(Val::Px(2.0)),
                 ..default()
             },
             RadarChart,
@@ -289,31 +298,37 @@ fn spawn_stat_panel(parent: &mut ChildBuilder) {
 #[derive(Component)]
 pub struct StatListText;
 
-/// Spawn skill tree panel with node graph
+/// Spawn skill tree panel with node graph - CYBERPUNK
 fn spawn_skill_tree_panel(
     parent: &mut ChildBuilder,
     active_tab: &ActiveClassTab,
     class_progression: &ClassProgression,
 ) {
-    parent.spawn(NodeBundle {
-        style: Style {
-            flex_grow: 1.0,
-            flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(15.0)),
-            border: UiRect::all(Val::Px(2.0)),
-            overflow: Overflow::clip(),
+    let class_color = active_tab.0.primary_color();
+    
+    parent.spawn((
+        NodeBundle {
+            style: Style {
+                flex_grow: 1.0,
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(20.0)),
+                border: UiRect::all(Val::Px(3.0)),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            background_color: colors::PANEL_BG_DARKER.into(),
+            border_color: class_color.into(),
+            border_radius: BorderRadius::all(Val::Px(4.0)),
             ..default()
         },
-        background_color: Color::srgb(0.08, 0.08, 0.12).into(),
-        border_color: Color::srgb(0.3, 0.3, 0.4).into(),
-        ..default()
-    }).with_children(|tree_panel| {
-        // Class name
+        PulseAnimation::new(1.0, class_color).with_range(0.8, 1.0),
+    )).with_children(|tree_panel| {
+        // Class name with neon glow
         tree_panel.spawn(TextBundle::from_section(
-            format!("{} TREE", active_tab.0.name().to_uppercase()),
+            format!("// {} AUGMENTS", active_tab.0.name().to_uppercase()),
             TextStyle {
-                font_size: 28.0,
-                color: active_tab.0.primary_color(),
+                font_size: 26.0,
+                color: class_color,
                 ..default()
             },
         ).with_style(Style {
@@ -387,12 +402,12 @@ fn spawn_skill_nodes(
             continue;
         }
         
-        // Tier header
+        // Tier header - CYBERPUNK
         parent.spawn(TextBundle::from_section(
-            format!("Tier {} - {} Nodes", tier_num, tier_upgrades.len()),
+            format!(">> TIER {} // {} AUGMENTS AVAILABLE", tier_num, tier_upgrades.len()),
             TextStyle {
-                font_size: 20.0,
-                color: Color::srgb(0.7, 0.8, 0.9),
+                font_size: 18.0,
+                color: colors::NEON_CYAN,
                 ..default()
             },
         ).with_style(Style {
@@ -419,48 +434,54 @@ fn spawn_skill_nodes(
     }
 }
 
-/// Spawn individual skill node button
+/// Spawn individual skill node button - CYBERPUNK HEXAGONAL STYLE
 fn spawn_skill_node_button(parent: &mut ChildBuilder, upgrade_type: UpgradeType) {
-    let node_size = 120.0;
+    let node_size = 130.0;
+    let class_color = upgrade_type.class().primary_color();
     
     parent.spawn((
         ButtonBundle {
             style: Style {
                 width: Val::Px(node_size),
                 height: Val::Px(node_size),
-                padding: UiRect::all(Val::Px(8.0)),
-                border: UiRect::all(Val::Px(2.0)),
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(3.0)),
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            background_color: Color::srgb(0.15, 0.15, 0.2).into(),
+            background_color: Color::srgba(0.05, 0.0, 0.15, 0.8).into(),
             border_color: Color::srgb(0.3, 0.3, 0.4).into(),
+            border_radius: BorderRadius::all(Val::Px(8.0)), // Slightly rounded for neo-hex look
             ..default()
         },
         SkillNode { upgrade_type },
     )).with_children(|button| {
         // Node name
         button.spawn(TextBundle::from_section(
-            upgrade_type.name(),
+            upgrade_type.name().to_uppercase(),
             TextStyle {
-                font_size: 12.0,
-                color: Color::WHITE,
+                font_size: 11.0,
+                color: Color::srgb(0.9, 0.9, 1.0),
                 ..default()
             },
-        ).with_text_justify(JustifyText::Center));
+        ).with_text_justify(JustifyText::Center)
+        .with_style(Style {
+            max_width: Val::Px(110.0),
+            ..default()
+        }));
         
-        // Tier indicator
+        // Tier indicator with class color
         button.spawn(TextBundle::from_section(
-            format!("T{}", upgrade_type.tier()),
+            format!("[ T{} ]", upgrade_type.tier()),
             TextStyle {
                 font_size: 10.0,
-                color: Color::srgb(0.6, 0.6, 0.6),
+                color: class_color,
                 ..default()
             },
         ).with_style(Style {
-            margin: UiRect::top(Val::Px(5.0)),
+            margin: UiRect::top(Val::Px(8.0)),
             ..default()
         }));
     });
@@ -562,44 +583,52 @@ fn get_upgrades_for_class(class: ShipClass) -> Vec<UpgradeType> {
     }
 }
 
-/// Update skill node button states based on purchase status
+/// Update skill node button states based on purchase status - CYBERPUNK COLORS
 pub fn update_skill_node_states_system(
-    upgrades: Res<PlayerUpgrades>,
+    _upgrades: Res<PlayerUpgrades>,
     inventory: Res<Inventory>,
     mut node_query: Query<(&SkillNode, &mut BackgroundColor, &mut BorderColor)>,
 ) {
-    if !upgrades.is_changed() && !inventory.is_changed() {
+    if !_upgrades.is_changed() && !inventory.is_changed() {
         return;
     }
     
     for (node, mut bg_color, mut border_color) in node_query.iter_mut() {
-        let is_purchased = upgrades.has_upgrade(node.upgrade_type);
+        let is_purchased = _upgrades.has_upgrade(node.upgrade_type);
         let can_afford = inventory.can_afford(&node.upgrade_type.cost());
-        let can_purchase = upgrades.can_purchase(node.upgrade_type);
+        let can_purchase = _upgrades.can_purchase(node.upgrade_type);
+        let class_color = node.upgrade_type.class().primary_color();
         
-        // Update colors based on state
+        // Update colors based on state - CYBERPUNK
         if is_purchased {
-            *bg_color = Color::srgb(0.2, 0.4, 0.2).into(); // Green
-            *border_color = Color::srgb(0.4, 0.8, 0.4).into();
+            *bg_color = Color::srgba(
+                class_color.to_srgba().red * 0.3,
+                class_color.to_srgba().green * 0.3,
+                class_color.to_srgba().blue * 0.3,
+                0.9
+            ).into();
+            *border_color = class_color.into(); // Bright class color for purchased
         } else if can_purchase && can_afford {
-            *bg_color = Color::srgb(0.3, 0.3, 0.2).into(); // Gold
-            *border_color = Color::srgb(0.8, 0.8, 0.4).into();
+            *bg_color = Color::srgba(0.1, 0.1, 0.0, 0.8).into(); // Dark gold tint
+            *border_color = colors::NEON_YELLOW.into(); // Available in yellow
         } else if can_afford {
-            *bg_color = Color::srgb(0.2, 0.2, 0.3).into(); // Blue (locked)
-            *border_color = Color::srgb(0.4, 0.4, 0.6).into();
+            *bg_color = Color::srgba(0.05, 0.0, 0.15, 0.8).into(); // Dark purple (locked)
+            *border_color = Color::srgb(0.4, 0.4, 0.5).into();
         } else {
-            *bg_color = Color::srgb(0.15, 0.15, 0.2).into(); // Gray
+            *bg_color = Color::srgba(0.05, 0.0, 0.15, 0.6).into(); // Very dark (unavailable)
             *border_color = Color::srgb(0.3, 0.3, 0.4).into();
         }
     }
 }
 
-/// Handle class tab clicks
+/// Handle class tab clicks - CYBERPUNK
 pub fn handle_class_tab_clicks_system(
     mut active_tab: ResMut<ActiveClassTab>,
     mut tab_query: Query<(&Interaction, &ClassTab, &mut BackgroundColor, &mut BorderColor), Changed<Interaction>>,
 ) {
     for (interaction, tab, mut bg_color, mut border_color) in tab_query.iter_mut() {
+        let class_color = tab.class.primary_color();
+        
         match *interaction {
             Interaction::Pressed => {
                 println!("[Skill Tree UI] Switching to {} tree", tab.class.name());
@@ -608,16 +637,26 @@ pub fn handle_class_tab_clicks_system(
             }
             Interaction::Hovered => {
                 if tab.class != active_tab.0 {
-                    *bg_color = Color::srgb(0.2, 0.2, 0.3).into();
+                    *bg_color = Color::srgba(
+                        class_color.to_srgba().red * 0.15,
+                        class_color.to_srgba().green * 0.15,
+                        class_color.to_srgba().blue * 0.15,
+                        0.7
+                    ).into();
                 }
             }
             Interaction::None => {
                 if tab.class == active_tab.0 {
-                    *bg_color = Color::srgb(0.3, 0.3, 0.5).into();
-                    *border_color = Color::srgb(0.6, 0.8, 1.0).into();
+                    *bg_color = Color::srgba(
+                        class_color.to_srgba().red * 0.2,
+                        class_color.to_srgba().green * 0.2,
+                        class_color.to_srgba().blue * 0.2,
+                        0.8
+                    ).into();
+                    *border_color = class_color.into();
                 } else {
-                    *bg_color = Color::srgb(0.15, 0.15, 0.2).into();
-                    *border_color = Color::srgb(0.3, 0.3, 0.3).into();
+                    *bg_color = colors::BUTTON_BG.into();
+                    *border_color = class_color.into();
                 }
             }
         }

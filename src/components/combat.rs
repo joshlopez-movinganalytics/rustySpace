@@ -106,6 +106,30 @@ pub enum Faction {
     Neutral,
 }
 
+/// Autofire component - enables automatic targeting and firing
+#[derive(Component, Clone, Copy, Debug)]
+pub struct AutofireController {
+    pub enabled: bool,
+    pub current_target: Option<Entity>,
+    pub max_lock_range: f32,
+    pub max_fire_range: f32,
+    pub aim_assist_strength: f32, // How strongly to turn toward target (0.0 - 1.0)
+    pub fire_cone_angle: f32, // Angle in radians within which to fire
+}
+
+impl Default for AutofireController {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            current_target: None,
+            max_lock_range: 150.0,
+            max_fire_range: 120.0,
+            aim_assist_strength: 0.8, // Strong tracking - 80% of max turn rate
+            fire_cone_angle: 0.08, // ~4.6 degrees (tighter for accuracy)
+        }
+    }
+}
+
 impl Weapon {
     /// Laser - Anti-Shield weapon (2.5x shield, 0.3x hull)
     /// Alt-fire: 3-shot burst

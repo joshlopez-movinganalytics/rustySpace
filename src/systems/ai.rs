@@ -309,7 +309,8 @@ pub fn ai_combat_system(
                                         let forward = transform.forward();
                                         let projectile_pos = transform.translation + forward.as_vec3() * 3.0;
                                         let projectile_direction = forward.as_vec3().normalize();
-                                        let projectile_velocity = forward.as_vec3() * weapon.projectile_speed + velocity.0;
+                                        // Projectiles do NOT inherit momentum - they travel at fixed speed relative to world
+                                        let projectile_velocity = forward.as_vec3() * weapon.projectile_speed;
                                         
                                         // Calculate laser color based on damage (enemies use base damage)
                                         let base_damage = weapon.damage;

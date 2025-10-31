@@ -8,12 +8,16 @@ mod utils;
 
 use resources::GameState;
 use systems::*;
+use systems::ui_animations;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_state::<GameState>()
         .add_event::<systems::progression::EnemyKillEvent>()
+        .add_event::<systems::combat_feedback::HitEvent>()
+        .add_event::<systems::combat_feedback::KillEvent>()
+        .add_event::<systems::combat_feedback::PlayerDamagedEvent>()
         .add_systems(Startup, (
             setup_game,
             systems::visuals::setup_starfield,
@@ -32,6 +36,10 @@ fn main() {
         .init_resource::<systems::movement::MouseFlightSettings>()
         .init_resource::<systems::movement::MouseFlightState>()
         .add_systems(Update, (
+            combat::autofire_toggle_system,
+            combat::autofire_targeting_system,
+            combat::autofire_aiming_system,
+            combat::autofire_firing_system,
             combat::weapon_state_system,
             combat::weapon_firing_system,
             combat::projectile_movement_system,
@@ -95,11 +103,25 @@ fn main() {
             ui::update_hud_system,
             ui::update_weapon_hud_system,
             ui::update_targeting_reticule_system,
+            ui::update_performance_monitor,
             ui::check_upgrade_availability_system,
             ui::update_upgrade_notification_pulse,
             ui::setup_enemy_health_bars,
             ui::update_enemy_health_bars,
             ui::apply_upgrades_to_player,
+            // UI Animation systems
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
+            ui_animations::update_glitch_effects,
+            ui_animations::update_glitch_text_effects,
+            // Combat feedback systems
+            combat_feedback::spawn_hit_marker_system,
+            combat_feedback::update_hit_markers_system,
+            combat_feedback::update_damage_numbers_system,
+            combat_feedback::spawn_kill_confirmation_system,
+            combat_feedback::update_kill_confirmations_system,
+            combat_feedback::spawn_damage_indicator_system,
+            combat_feedback::update_damage_indicators_system,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(OnEnter(GameState::MainMenu), (
             ui::setup_main_menu,
@@ -107,7 +129,17 @@ fn main() {
             spawning::cleanup_on_main_menu,
         ))
         .add_systems(OnExit(GameState::MainMenu), ui::cleanup_main_menu)
-        .add_systems(Update, ui::main_menu_system.run_if(in_state(GameState::MainMenu)))
+        .add_systems(Update, (
+            ui::main_menu_system,
+            // UI Animation systems for main menu
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
+            ui_animations::update_glitch_effects,
+            ui_animations::update_glitch_text_effects,
+            // Background particles for main menu
+            ui_effects::spawn_background_particles,
+            ui_effects::update_background_particles,
+        ).run_if(in_state(GameState::MainMenu)))
         .add_systems(OnEnter(GameState::InGame), (
             movement::manage_cursor_lock,
             ui::setup_targeting_reticule,
@@ -133,6 +165,9 @@ fn main() {
             skill_tree_ui::skill_tree_scroll_system,
             skill_tree_ui::display_skill_node_tooltip_system,
             stat_visualization::update_radar_chart_system,
+            // UI Animation systems for skill tree
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
         ).run_if(in_state(GameState::Upgrade)))
         .add_systems(Update, ui::check_upgrade_key.run_if(in_state(GameState::InGame)))
         .add_systems(Update, ui::check_galaxy_map_key.run_if(in_state(GameState::InGame)))
@@ -145,14 +180,28 @@ fn main() {
             ui::cleanup_pause_menu,
             movement::manage_cursor_lock,
         ))
-        .add_systems(Update, ui::pause_menu_system.run_if(in_state(GameState::Paused)))
+        .add_systems(Update, (
+            ui::pause_menu_system,
+            // UI Animation systems for pause menu
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
+            ui_animations::update_glitch_effects,
+            ui_animations::update_glitch_text_effects,
+        ).run_if(in_state(GameState::Paused)))
         .add_systems(OnEnter(GameState::GameOver), (
             ui::setup_game_over_menu,
             ui::cleanup_hud_on_game_over,
             movement::release_cursor_lock,
         ))
         .add_systems(OnExit(GameState::GameOver), ui::cleanup_game_over_menu)
-        .add_systems(Update, ui::game_over_menu_system.run_if(in_state(GameState::GameOver)))
+        .add_systems(Update, (
+            ui::game_over_menu_system,
+            // UI Animation systems for game over menu
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
+            ui_animations::update_glitch_effects,
+            ui_animations::update_glitch_text_effects,
+        ).run_if(in_state(GameState::GameOver)))
         .add_systems(OnEnter(GameState::InGame), (
             spawning::handle_restart_game,
             spawning::handle_load_game,
@@ -168,6 +217,10 @@ fn main() {
         .add_systems(Update, (
             galaxy_ui::galaxy_map_camera_controls,
             galaxy_ui::galaxy_map_close_system,
+            galaxy_ui::animate_current_system_ring,
+            // UI Animation systems for galaxy map
+            ui_animations::update_pulse_animations,
+            ui_animations::update_pulse_backgrounds,
         ).run_if(in_state(GameState::GalaxyMap)))
         .add_systems(Update, (
             travel::check_jump_gate_proximity,
@@ -273,6 +326,7 @@ fn setup_game(
         components::abilities::AbilityController::new(),
         components::ship_classes::ShipVisualConfig::default(),
         components::ship_classes::ClassBonuses::new(),
+        components::combat::AutofireController::default(),
     )).id();
 
     // Build modular ship visuals
@@ -317,6 +371,9 @@ fn setup_game(
     
     // Initialize hovered node tracker
     commands.insert_resource(systems::skill_tree_ui::HoveredNode::default());
+    
+    // Initialize screen shake resource
+    commands.insert_resource(systems::ui_effects::ScreenShake::default());
 
     // Initialize game resources (reduced spawn time from 5s to 3s for more action)
     commands.insert_resource(resources::SpawnTimer(Timer::from_seconds(3.0, TimerMode::Repeating)));

@@ -4,6 +4,240 @@ use crate::components::combat::*;
 use crate::components::ai::Enemy;
 use crate::resources::GameState;
 
+/// Autofire toggle system - handles enabling/disabling autofire with K key
+pub fn autofire_toggle_system(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut query: Query<&mut AutofireController, With<Player>>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyK) {
+        for mut autofire in query.iter_mut() {
+            autofire.enabled = !autofire.enabled;
+            if autofire.enabled {
+                println!("[Combat] Autofire ENABLED - Auto-aiming and firing at nearest enemy");
+            } else {
+                println!("[Combat] Autofire DISABLED - Manual control");
+                autofire.current_target = None;
+            }
+        }
+    }
+}
+
+/// Autofire targeting system - finds and tracks nearest enemy
+pub fn autofire_targeting_system(
+    mut player_query: Query<(&Transform, &mut AutofireController), With<Player>>,
+    enemy_query: Query<(Entity, &Transform, &Health), (With<Enemy>, Without<Player>)>,
+) {
+    for (player_transform, mut autofire) in player_query.iter_mut() {
+        if !autofire.enabled {
+            autofire.current_target = None;
+            continue;
+        }
+        
+        // Find closest enemy within lock range
+        let mut closest_distance = autofire.max_lock_range;
+        let mut closest_enemy = None;
+        
+        for (enemy_entity, enemy_transform, _health) in enemy_query.iter() {
+            let distance = player_transform.translation.distance(enemy_transform.translation);
+            if distance < closest_distance {
+                closest_distance = distance;
+                closest_enemy = Some(enemy_entity);
+            }
+        }
+        
+        // Update target
+        if let Some(old_target) = autofire.current_target {
+            // Check if old target still exists and is in range
+            if let Ok((_, target_transform, _)) = enemy_query.get(old_target) {
+                let distance = player_transform.translation.distance(target_transform.translation);
+                if distance > autofire.max_lock_range {
+                    autofire.current_target = closest_enemy;
+                } else {
+                    // Keep tracking current target
+                    autofire.current_target = Some(old_target);
+                }
+            } else {
+                // Old target destroyed, find new one
+                autofire.current_target = closest_enemy;
+            }
+        } else {
+            autofire.current_target = closest_enemy;
+        }
+    }
+}
+
+/// Autofire aiming system - actively tracks and aims at locked target with proper lead
+pub fn autofire_aiming_system(
+    time: Res<Time>,
+    mut player_query: Query<(
+        &AutofireController,
+        &Transform,
+        &Velocity,
+        &WeaponMount,
+        &mut AngularVelocity,
+        &Ship,
+    ), With<Player>>,
+    enemy_query: Query<(&Transform, &Velocity), (With<Enemy>, Without<Player>)>,
+) {
+    let _dt = time.delta_seconds();
+    
+    for (autofire, player_transform, player_velocity, weapon_mount, mut angular_vel, ship) in player_query.iter_mut() {
+        if !autofire.enabled || autofire.current_target.is_none() {
+            continue;
+        }
+        
+        let target_entity = autofire.current_target.unwrap();
+        if let Ok((target_transform, target_velocity)) = enemy_query.get(target_entity) {
+            // Get current weapon's projectile speed
+            let projectile_speed = if let Some(weapon) = weapon_mount.weapons.get(weapon_mount.current_weapon) {
+                weapon.projectile_speed
+            } else {
+                150.0 // Fallback if no weapon
+            };
+            
+            // Calculate relative position and velocity
+            let relative_pos = target_transform.translation - player_transform.translation;
+            let distance = relative_pos.length();
+            
+            // Target velocity relative to player (since projectiles don't inherit momentum in this game)
+            let relative_velocity = target_velocity.0;
+            
+            // Iterative lead calculation for more accuracy
+            // Start with initial time estimate
+            let mut time_to_impact = distance / projectile_speed;
+            
+            // Refine the estimate (2 iterations is usually enough)
+            for _ in 0..2 {
+                let predicted_pos = target_transform.translation + relative_velocity * time_to_impact;
+                let new_distance = (predicted_pos - player_transform.translation).length();
+                time_to_impact = new_distance / projectile_speed;
+            }
+            
+            // Final predicted intercept point
+            let intercept_point = target_transform.translation + relative_velocity * time_to_impact;
+            
+            // Calculate direction to intercept point
+            let to_intercept = (intercept_point - player_transform.translation).normalize();
+            let forward = player_transform.forward().as_vec3();
+            
+            // Calculate angle difference
+            let cross = forward.cross(to_intercept);
+            let dot = forward.dot(to_intercept).clamp(-1.0, 1.0);
+            let angle_to_target = dot.acos();
+            
+            // Only apply tracking if not already facing target
+            if angle_to_target > 0.015 { // About 0.86 degrees tolerance (tighter)
+                // Use ship's turn rate as base, scaled by aim assist strength
+                let turn_direction = cross.y.signum();
+                
+                // Proportional control: turn faster when further from target
+                // Use smoother curve for more natural tracking
+                let turn_speed_multiplier = (angle_to_target * 2.0).min(1.0);
+                
+                // Apply rotation toward intercept point
+                let base_turn_rate = ship.turn_rate * autofire.aim_assist_strength * 6.0;
+                let turn_amount = turn_direction * base_turn_rate * turn_speed_multiplier;
+                
+                // Set the angular velocity directly
+                angular_vel.0.y = turn_amount;
+            } else {
+                // Target is aligned, minimal correction only
+                angular_vel.0.y *= 0.2; // Heavy dampen for stability
+            }
+        }
+    }
+}
+
+/// Autofire firing system - automatically fires when target is in sights
+pub fn autofire_firing_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    autofire_query: Query<(&AutofireController, &Transform), With<Player>>,
+    enemy_query: Query<&Transform, (With<Enemy>, Without<Player>)>,
+    mut player_query: Query<(
+        Entity,
+        &Transform,
+        &Velocity,
+        &mut WeaponMount,
+        &mut Energy,
+        &crate::components::ship_classes::ClassBonuses,
+    ), With<Player>>,
+) {
+    let dt = time.delta_seconds();
+    
+    // First, check if autofire is enabled and has a target
+    let (autofire_enabled, target_entity, fire_cone_angle, max_fire_range) = {
+        if let Ok((autofire, _)) = autofire_query.get_single() {
+            if autofire.enabled && autofire.current_target.is_some() {
+                (true, autofire.current_target.unwrap(), autofire.fire_cone_angle, autofire.max_fire_range)
+            } else {
+                return; // No autofire or no target
+            }
+        } else {
+            return;
+        }
+    };
+    
+    if !autofire_enabled {
+        return;
+    }
+    
+    // Get target transform
+    let target_transform = if let Ok(transform) = enemy_query.get(target_entity) {
+        transform
+    } else {
+        return; // Target doesn't exist
+    };
+    
+    // Update weapon cooldowns and fire if possible
+    for (entity, transform, velocity, mut weapon_mount, mut energy, bonuses) in player_query.iter_mut() {
+        // Update cooldown timers
+        for weapon in weapon_mount.weapons.iter_mut() {
+            weapon.cooldown_timer = (weapon.cooldown_timer - dt).max(0.0);
+        }
+        
+        // Check if target is in range and in firing cone
+        let to_target = target_transform.translation - transform.translation;
+        let distance = to_target.length();
+        
+        if distance > max_fire_range {
+            continue; // Out of range
+        }
+        
+        let forward = transform.forward().as_vec3();
+        let to_target_normalized = to_target.normalize();
+        let dot = forward.dot(to_target_normalized);
+        let angle = dot.acos();
+        
+        if angle > fire_cone_angle {
+            continue; // Not in firing cone
+        }
+        
+        // Fire current weapon
+        let current_weapon_idx = weapon_mount.current_weapon;
+        if let Some(weapon) = weapon_mount.weapons.get_mut(current_weapon_idx) {
+            let can_fire = weapon.cooldown_timer <= 0.0 
+                && energy.current >= weapon.energy_cost
+                && !weapon.is_reloading
+                && (weapon.max_heat == 0.0 || weapon.heat < weapon.max_heat)
+                && (weapon.max_ammo == 0 || weapon.current_ammo > 0);
+            
+            if can_fire {
+                fire_weapon(&mut commands, &mut meshes, &mut materials, entity, transform, velocity, weapon, &mut energy, bonuses, false);
+                weapon.cooldown_timer = (1.0 / weapon.fire_rate) / bonuses.fire_rate_multiplier;
+            } else if weapon.max_ammo > 0 && weapon.current_ammo == 0 && !weapon.is_reloading {
+                // Auto-reload
+                if weapon.reserve_ammo > 0 {
+                    weapon.is_reloading = true;
+                    weapon.reload_timer = 0.0;
+                }
+            }
+        }
+    }
+}
+
 /// Weapon state management system (heat, ammo, reload)
 pub fn weapon_state_system(
     time: Res<Time>,
@@ -176,7 +410,7 @@ fn fire_weapon(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     owner: Entity,
     transform: &Transform,
-    velocity: &Velocity,
+    _velocity: &Velocity,  // Not used - projectiles don't inherit momentum
     weapon: &mut Weapon,
     energy: &mut Energy,
     bonuses: &crate::components::ship_classes::ClassBonuses,
@@ -219,7 +453,8 @@ fn fire_weapon(
     let spread_rotation = Quat::from_euler(EulerRot::XYZ, spread_y, spread_x, 0.0);
     let projectile_direction = (spread_rotation * forward.as_vec3()).normalize();
     
-    let projectile_velocity = projectile_direction * weapon.projectile_speed + velocity.0;
+    // Projectiles do NOT inherit momentum - they travel at fixed speed relative to world
+    let projectile_velocity = projectile_direction * weapon.projectile_speed;
     
     // Calculate final damage first (needed for laser color)
     let base_damage = weapon.damage;
@@ -303,7 +538,7 @@ fn fire_weapon_spread(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     owner: Entity,
     transform: &Transform,
-    velocity: &Velocity,
+    _velocity: &Velocity,  // Not used - projectiles don't inherit momentum
     weapon: &mut Weapon,
     energy: &mut Energy,
 ) {
@@ -323,7 +558,8 @@ fn fire_weapon_spread(
     let spread_rotation = Quat::from_euler(EulerRot::XYZ, spread_y, spread_x, 0.0);
     let projectile_direction = (spread_rotation * forward.as_vec3()).normalize();
     
-    let projectile_velocity = projectile_direction * weapon.projectile_speed + velocity.0;
+    // Projectiles do NOT inherit momentum - they travel at fixed speed relative to world
+    let projectile_velocity = projectile_direction * weapon.projectile_speed;
     
     let (mesh, color) = get_weapon_visual(weapon.weapon_type, meshes);
     
